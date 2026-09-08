@@ -3196,6 +3196,13 @@
   background: var(--meal-type-color, var(--primary));
 }
 
+.duplicateDayTypeLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .duplicateTypeOptions {
   display: grid;
   gap: 0.25rem;
@@ -3215,7 +3222,23 @@
   background: var(--text-muted);
 }
 
+.duplicateDayTypeSource {
+  background: color-mix(
+    in srgb,
+    var(--meal-type-color, var(--primary)) 22%,
+    var(--card)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--meal-type-color, var(--primary)) 94%,
+    var(--text)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--meal-type-color, var(--primary)) 58%, transparent);
+}
+
 .duplicateDayTypeStatus {
+  margin-left: auto;
   flex-shrink: 0;
   font-size: 0.5rem;
   letter-spacing: 0.04em;

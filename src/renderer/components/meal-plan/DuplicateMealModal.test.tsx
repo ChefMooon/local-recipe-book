@@ -1,15 +1,37 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render as testingRender, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render as testingRender,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { DuplicateMealModal } from "./DuplicateMealModal";
-import type { EditableMeal } from "@/lib/calendar";
+import { getMonday, type CalendarMeal, type EditableMeal } from "@/lib/calendar";
 import type { MealTypeProfilePayload } from "@shared/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { fetchJson } from "@/lib/api";
+
+vi.mock("@/lib/api", () => ({
+  fetchJson: vi.fn().mockResolvedValue({ data: [] }),
+}));
+
+const fetchJsonMock = vi.mocked(fetchJson);
 
 function render(ui: Parameters<typeof testingRender>[0]) {
-  return testingRender(<TooltipProvider delayDuration={0}>{ui}</TooltipProvider>);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  return testingRender(
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider delayDuration={0}>{ui}</TooltipProvider>
+    </QueryClientProvider>
+  );
 }
 
 const monday = new Date(2026, 4, 18);
@@ -76,6 +98,14 @@ const meal: EditableMeal = {
   linkedRecipe: null,
 };
 
+const scheduledBreakfast = {
+  ...meal,
+  id: "meal-2",
+  name: "Second breakfast",
+  date: new Date(2026, 4, 19).toISOString(),
+  mealType: "BREAKFAST",
+} as unknown as CalendarMeal;
+
 const rangedProfile: MealTypeProfilePayload = {
   ...mealTypeProfiles[0],
   id: "profile-ranged",
@@ -118,6 +148,8 @@ const unavailableProfile: MealTypeProfilePayload = {
 
 afterEach(() => {
   cleanup();
+  fetchJsonMock.mockReset();
+  fetchJsonMock.mockResolvedValue({ data: [] });
 });
 
 describe("DuplicateMealModal", () => {
@@ -141,6 +173,47 @@ describe("DuplicateMealModal", () => {
 
     expect(sourceButton).toBeTruthy();
     expect(sourceButton).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("highlights the source meal type across the displayed week", () => {
+    render(
+      <DuplicateMealModal
+        isOpen
+        meal={meal}
+        mealTypeProfiles={mealTypeProfiles}
+        onClose={vi.fn()}
+        onDuplicate={vi.fn()}
+        referenceDate={monday}
+      />
+    );
+
+    const sourceBreakfast = document.querySelector(
+      "button[data-source-day='true'][data-meal-type-definition-id='breakfast']"
+    );
+    const sourceDinner = document.querySelector(
+      "button[data-source-day='true'][data-meal-type-definition-id='dinner']"
+    );
+    const otherDayBreakfastButtons = document.querySelectorAll(
+      "button[data-source-day='false'][data-meal-type-definition-id='breakfast']"
+    );
+    const otherDayDinnerButtons = document.querySelectorAll(
+      "button[data-source-day='false'][data-meal-type-definition-id='dinner']"
+    );
+
+    expect(sourceBreakfast).toHaveAttribute("data-source-meal-type", "true");
+    expect(sourceBreakfast?.className).toContain("duplicateDayTypeSource");
+    expect(sourceDinner).toHaveAttribute("data-source-meal-type", "false");
+    expect(sourceDinner?.className).not.toContain("duplicateDayTypeSource");
+    expect(
+      Array.from(otherDayBreakfastButtons).every(
+        (button) => button.getAttribute("data-source-meal-type") === "true"
+      )
+    ).toBe(true);
+    expect(
+      Array.from(otherDayDinnerButtons).every(
+        (button) => button.getAttribute("data-source-meal-type") === "false"
+      )
+    ).toBe(true);
   });
 
   it("marks the current day separately from the source day", () => {
@@ -213,12 +286,12 @@ describe("DuplicateMealModal", () => {
 
     expect(
       screen.getByRole("button", {
-        name: "Tue, May 19, Duplicate as Brunch",
+        name: "Tue, May 19, Duplicate as Brunch, 0 meals scheduled",
       })
     ).toHaveStyle({ "--meal-type-color": "#f97316" });
     expect(
       screen.getByRole("button", {
-        name: "Wed, May 20, Duplicate as Supper",
+        name: "Wed, May 20, Duplicate as Supper, 0 meals scheduled",
       })
     ).toHaveStyle({ "--meal-type-color": "#22c55e" });
   });
@@ -239,11 +312,11 @@ describe("DuplicateMealModal", () => {
 
     expect(
       screen.getByRole("button", {
-        name: "Tue, May 19, Duplicate as Brunch",
+        name: "Tue, May 19, Duplicate as Brunch, 0 meals scheduled",
       })
     ).toBeTruthy();
     const supperButton = screen.getByRole("button", {
-      name: "Tue, May 19, Duplicate as Supper",
+        name: "Tue, May 19, Duplicate as Supper, 0 meals scheduled",
     });
 
     expect(supperButton).toHaveAttribute(
@@ -285,6 +358,84 @@ describe("DuplicateMealModal", () => {
     });
 
     expect(unavailableDay).toBeDisabled();
+  });
+
+  it("renders counts for matching date and meal type slots", async () => {
+    fetchJsonMock.mockResolvedValue({ data: [scheduledBreakfast] });
+
+    render(
+      <DuplicateMealModal
+        isOpen
+        meal={meal}
+        mealTypeProfiles={mealTypeProfiles}
+        onClose={vi.fn()}
+        onDuplicate={vi.fn()}
+        referenceDate={monday}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Tue, May 19, Duplicate as Breakfast, 1 meal scheduled",
+        })
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: "Tue, May 19, Duplicate as Dinner, 0 meals scheduled",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Wed, May 20, Duplicate as Breakfast, 0 meals scheduled",
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("loads counts for the newly displayed week", async () => {
+    const referenceDate = new Date();
+    referenceDate.setDate(referenceDate.getDate() + 14);
+    const previousWeekStart = getMonday(referenceDate);
+    previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+    const targetDate = new Date(previousWeekStart);
+    targetDate.setDate(targetDate.getDate() + 1);
+    const navigationBreakfast = {
+      ...scheduledBreakfast,
+      date: targetDate.toISOString(),
+    } as unknown as CalendarMeal;
+
+    fetchJsonMock
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: [navigationBreakfast] });
+
+    render(
+      <DuplicateMealModal
+        isOpen
+        meal={meal}
+        mealTypeProfiles={mealTypeProfiles}
+        onClose={vi.fn()}
+        onDuplicate={vi.fn()}
+        referenceDate={referenceDate}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchJsonMock).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous week" }));
+
+    await waitFor(() => {
+      const count = document.querySelector(
+        `button[data-meal-type-definition-id="breakfast"][data-target-date^="${targetDate.toISOString().slice(0, 10)}"] [data-meal-count="1"]`
+      );
+
+      expect(count).toBeInTheDocument();
+    });
+
+    expect(fetchJsonMock).toHaveBeenCalledTimes(2);
   });
 
   it("moves between future and current weeks without entering a past week", () => {

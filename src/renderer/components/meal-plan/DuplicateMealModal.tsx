@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import {
   getMealTypeDefinitionsForDate,
@@ -6,8 +7,11 @@ import {
   getTypeConfig,
   isSameDay,
   normalizeMealDate,
+  toEditableMeal,
+  type CalendarMeal,
   type EditableMeal,
 } from "@/lib/calendar";
+import { fetchJson } from "@/lib/api";
 import type { MealTypeProfilePayload } from "@shared/types";
 import { ModalShell } from "@/components/ui/ModalShell";
 import { PeriodNavigation } from "./PeriodNavigation";
@@ -62,6 +66,27 @@ export function DuplicateMealModal({
   const canNavigatePrevious =
     displayedWeekStart.getTime() > currentWeekStart.getTime();
 
+  const displayedWeekEnd = new Date(displayedWeekStart);
+  displayedWeekEnd.setDate(displayedWeekEnd.getDate() + 6);
+  displayedWeekEnd.setHours(23, 59, 59, 999);
+
+  const displayedMealsQuery = useQuery({
+    enabled: isOpen,
+    placeholderData: keepPreviousData,
+    queryKey: [
+      "duplicate-meal-counts",
+      displayedWeekStart.toISOString(),
+      displayedWeekEnd.toISOString(),
+    ],
+    queryFn: async () => {
+      const path = `/api/meals?from=${encodeURIComponent(displayedWeekStart.toISOString())}&to=${encodeURIComponent(displayedWeekEnd.toISOString())}`;
+      const response = await fetchJson<{ data: CalendarMeal[] }>(path);
+      return response.data.map(toEditableMeal);
+    },
+  });
+
+  const displayedMeals = displayedMealsQuery.data ?? [];
+
   const changeDisplayedWeek = (offset: number) => {
     const nextWeekStart = new Date(displayedWeekStart);
     nextWeekStart.setDate(nextWeekStart.getDate() + offset);
@@ -92,8 +117,6 @@ export function DuplicateMealModal({
     });
   }, [displayedWeekStart, meal.date, mealTypeProfiles]);
 
-  const displayedWeekEnd = new Date(displayedWeekStart);
-  displayedWeekEnd.setDate(displayedWeekEnd.getDate() + 6);
   const displayedWeekLabel = `${displayedWeekStart.toLocaleDateString(
     "default",
     {
@@ -187,14 +210,22 @@ export function DuplicateMealModal({
                     const typeConfig = getTypeConfig(definition.slug, [
                       definition,
                     ]);
+                    const mealCount = displayedMeals.filter(
+                      (candidate) =>
+                        isSameDay(candidate.date, date) &&
+                        candidate.type === definition.slug
+                    ).length;
+                    const isSourceMealType =
+                      definition.id === meal.mealTypeDefinitionId ||
+                      definition.slug === meal.type;
                     const isSelectable = definition.enabled && !isSourceDay;
-                    const buttonLabel = `${dayLabel}, ${dateLabel}, Duplicate as ${typeConfig.label}`;
+                    const buttonLabel = `${dayLabel}, ${dateLabel}, Duplicate as ${typeConfig.label}, ${mealCount} ${mealCount === 1 ? "meal" : "meals"} scheduled`;
 
                     return (
                       <button
                         aria-label={buttonLabel}
                         aria-disabled={!isSelectable || isDuplicating}
-                        className={`${styles.duplicateDayType} ${!isSelectable ? styles.duplicateDayTypeDisabled : ""}`}
+                        className={`${styles.duplicateDayType} ${!isSelectable ? styles.duplicateDayTypeDisabled : ""} ${isSourceMealType ? styles.duplicateDayTypeSource : ""}`}
                         data-autofocus={
                           firstSelectableTarget?.target ===
                             duplicateTargets.find(
@@ -206,6 +237,7 @@ export function DuplicateMealModal({
                         }
                         data-meal-type-definition-id={definition.id}
                         data-source-day={isSourceDay ? "true" : "false"}
+                        data-source-meal-type={isSourceMealType ? "true" : "false"}
                         data-target-date={date.toISOString()}
                         key={definition.id}
                         onClick={() => {
@@ -226,7 +258,16 @@ export function DuplicateMealModal({
                           aria-hidden="true"
                           className={styles.duplicateDayTypeMarker}
                         />
-                        <span>{typeConfig.label}</span>
+                        <span className={styles.duplicateDayTypeLabel}>
+                          {typeConfig.label}
+                        </span>
+                        <span
+                          aria-hidden="true"
+                          className={styles.duplicateDayTypeStatus}
+                          data-meal-count={mealCount}
+                        >
+                          {mealCount}
+                        </span>
                       </button>
                     );
                   })
