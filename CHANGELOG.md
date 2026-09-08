@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.7] - 2026-09-08
+
+### Added
+
+- Meal duplication now lets you choose which enabled meal types to copy, including custom and date-ranged meal slots.
+- Recipes can now be exported from their detail view as print-ready PDFs, HTML, Markdown, or CSV, with selectable recipe sections.
+- Desktop update behavior is now configurable, with clearer controls for checking, downloading, deferring, and installing updates.
+
+### Fixed
+
+- Improved the mobile recipe detail header so actions and recipe information remain usable on smaller screens.
+- Stabilized meal-plan printing and exporting on mobile, including modal layout and print controls.
+
 ## [1.2.6] - 2026-09-01
 
 ### Added

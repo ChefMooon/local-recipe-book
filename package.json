@@ -1,6 +1,6 @@
 {
   "name": "local-recipe-book",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "private": true,
   "packageManager": "npm@10.9.3",
   "description": "AI-powered meal-planning desktop app",
