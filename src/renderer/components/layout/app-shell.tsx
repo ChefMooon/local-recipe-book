@@ -87,7 +87,7 @@ const navigationItems = [
   { label: "Home", href: "/" },
   { label: "Meal Plan", href: "/meal-plan" },
   { label: "Recipes", href: "/recipes" },
-  { label: "Grocery List", href: "/grocery-list" },
+  { label: "Grocery Lists", href: "/grocery-list" },
   { label: "Prep Lists", href: "/prep-lists" },
   { label: "Stats", href: "/stats" },
 ];

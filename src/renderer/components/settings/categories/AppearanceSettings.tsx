@@ -234,7 +234,7 @@ export function AppearanceSettings({
             <ToggleRow
               checked={homeDashboard.showGroceryList}
               description="Show the grocery list card in Overview."
-              label="Show grocery list"
+              label="Show grocery lists"
               onChange={(checked) =>
                 onHomeToggle(
                   "showGroceryList",

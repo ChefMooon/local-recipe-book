@@ -224,7 +224,7 @@ export default function GroceryListPage() {
             + New List
           </button>
         }
-        eyebrow="Grocery List"
+        eyebrow="Grocery Lists"
         subtitle={
           isInitialListLoad
             ? "Loading grocery lists..."

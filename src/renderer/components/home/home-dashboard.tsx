@@ -642,7 +642,7 @@ export function HomeDashboard() {
                     <div className={styles.cardHeader}>
                       <div className={styles.cardTitle}>
                         <ShoppingCart aria-hidden="true" size={20} weight="regular" />
-                        <span>Grocery List</span>
+                        <span>Grocery Lists</span>
                       </div>
                       <Button
                         asChild

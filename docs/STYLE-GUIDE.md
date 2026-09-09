@@ -2,7 +2,7 @@
 
 Last updated: 2026-03-17
 Owner: Product + Frontend Engineering
-Source pages audited: Home, Meal Plan, Grocery List, Stats, Settings
+Source pages audited: Home, Meal Plan, Grocery Lists, Stats, Settings
 
 ## Purpose and scope
 
@@ -198,7 +198,7 @@ From app shell:
 
 ### Page header pattern
 
-Shared by Meal Plan, Grocery List, and Settings:
+Shared by Meal Plan, Grocery Lists, and Settings:
 
 - Left cluster: eyebrow, page title, short subtitle
 - Right cluster: primary action and context controls
@@ -482,4 +482,4 @@ Implementation rules:
 | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | 1.2     | 2026-08-13 | Documented the Phosphor icon migration target, accessibility contract, and deliberate visual exceptions                              |
 | 1.1     | 2026-08-12 | Added the dark-mode and custom-theme option logic, including `system`/`light`/`dark` resolution and the semantic token profile model |
-| 1.0     | 2026-03-17 | Initial design system grounded in Home, Meal Plan, Grocery List, Stats, and Settings implementation                                  |
+| 1.0     | 2026-03-17 | Initial design system grounded in Home, Meal Plan, Grocery Lists, Stats, and Settings implementation                                  |

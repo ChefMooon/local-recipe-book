@@ -66,7 +66,7 @@ function GroceryShopContent({
             onClick={() => navigate("/grocery-list")}
             type="button"
           >
-            Back to Grocery List
+            Back to Grocery Lists
           </button>
           <button
             className={styles.completeBtn}
