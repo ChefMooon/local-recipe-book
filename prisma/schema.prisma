@@ -226,10 +226,26 @@ model PantryItem {
   packages              PantryPackage[]
   warningRules          PantryWarningRule[]
   events                PantryInventoryEvent[]
+  attentionStates       PantryAttention[]
+  groceryLinks          PantryGroceryLink[]
+  dailyUsageState       PantryDailyUsageState?
 
   @@index([category])
   @@index([stockMode])
   @@index([updatedAt])
+}
+
+model PantryDailyUsageState {
+  id                   String     @id @default(cuid())
+  itemId               String     @unique
+  configRevision       Int        @default(1)
+  baselineLocalDate    String
+  lastAppliedLocalDate String
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  item                 PantryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([lastAppliedLocalDate])
 }
 
 model PantryAlias {
@@ -333,6 +349,45 @@ model PantryInventoryEvent {
   @@index([itemId, occurredAt])
   @@index([locationStockId, occurredAt])
   @@index([type, occurredAt])
+}
+
+model PantryAttention {
+  id                String             @id @default(cuid())
+  pantryItemId      String
+  source            String
+  expiresAt         DateTime?
+  groceryLinkId     String?
+  operationIdentity String             @unique
+  reviewIdentity    String?            @unique
+  active            Boolean            @default(true)
+  closedAt          DateTime?
+  closeReason       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  pantryItem        PantryItem         @relation(fields: [pantryItemId], references: [id], onDelete: Cascade)
+  groceryLink       PantryGroceryLink? @relation(fields: [groceryLinkId], references: [id], onDelete: SetNull)
+
+  @@index([pantryItemId, createdAt])
+  @@index([groceryLinkId])
+}
+
+model PantryGroceryLink {
+  id                String            @id @default(cuid())
+  pantryItemId      String
+  groceryItemId     String
+  status            String            @default("active")
+  active            Boolean           @default(true)
+  operationIdentity String            @unique
+  reviewIdentity    String?           @unique
+  closedAt          DateTime?
+  closeReason       String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  pantryItem        PantryItem        @relation(fields: [pantryItemId], references: [id], onDelete: Cascade)
+  attentionStates   PantryAttention[]
+
+  @@index([pantryItemId, createdAt])
+  @@index([groceryItemId])
 }
 
 model Recipe {

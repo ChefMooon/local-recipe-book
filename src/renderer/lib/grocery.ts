@@ -53,6 +53,13 @@ export type GroceryItem = {
   meal: string | null;
   checked: boolean;
   sortOrder: number;
+  pantryLink?: {
+    id: string;
+    pantryItemId: string;
+    groceryItemId: string;
+    status: string;
+    active: boolean;
+  } | null;
 };
 
 export type GroceryList = {

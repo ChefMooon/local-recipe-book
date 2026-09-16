@@ -3,10 +3,42 @@ import { bootstrapDatabase } from "../lib/bootstrap";
 import { publishCommittedChange } from "./change-event-bus";
 import { calculatePantryRequirement } from "./pantry-calculation";
 import { pantryService } from "./pantry-service";
+import { pantryAttentionService } from "./pantry-attention-service";
 import type { PantryCompletionDecision } from "@shared/schemas/grocery-pantry-review-schemas";
 import { normalizePantryIdentity } from "@shared/schemas/pantry-schemas";
 
-function serializeGroceryList(groceryList: {
+type SerializedPantryLink = {
+  id: string;
+  pantryItemId: string;
+  groceryItemId: string;
+  status: string;
+  active: boolean;
+};
+
+async function getPantryLinks(groceryItemIds: string[]) {
+  const links = new Map<string, SerializedPantryLink>();
+  if (groceryItemIds.length === 0) return links;
+  const delegate = (prisma as unknown as { pantryGroceryLink?: typeof prisma.pantryGroceryLink }).pantryGroceryLink;
+  if (!delegate) return links;
+  const rows = await delegate.findMany({
+    where: { groceryItemId: { in: groceryItemIds } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+  for (const row of rows) {
+    if (!links.has(row.groceryItemId)) {
+      links.set(row.groceryItemId, {
+        id: row.id,
+        pantryItemId: row.pantryItemId,
+        groceryItemId: row.groceryItemId,
+        status: row.status,
+        active: row.active,
+      });
+    }
+  }
+  return links;
+}
+
+async function serializeGroceryList(groceryList: {
   id: string;
   name: string;
   date: Date | null;
@@ -26,6 +58,7 @@ function serializeGroceryList(groceryList: {
   }>;
 }) {
   const checkedCount = groceryList.items.filter((item) => item.checked).length;
+  const pantryLinks = await getPantryLinks(groceryList.items.map((item) => item.id));
 
   return {
     id: groceryList.id,
@@ -53,6 +86,7 @@ function serializeGroceryList(groceryList: {
         meal: item.meal,
         checked: item.checked,
         sortOrder: item.sortOrder,
+        pantryLink: pantryLinks.get(item.id) ?? null,
       })),
   };
 }
@@ -96,6 +130,7 @@ type UpdateItemInput = {
   notes?: string | null;
   meal?: string | null;
   checked?: boolean;
+  operationIdentity?: string;
 };
 
 type GroceryListSnapshot = {
@@ -182,6 +217,33 @@ async function getListOrThrow(id: string) {
 }
 
 export class GroceryService {
+  private async getPantryLinkForItem(groceryItemId: string) {
+    const delegate = (prisma as unknown as { pantryGroceryLink?: typeof prisma.pantryGroceryLink }).pantryGroceryLink;
+    if (!delegate) return null;
+    return delegate.findFirst({
+      where: { groceryItemId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+  }
+
+  private async transitionPantryLink(
+    groceryItemId: string,
+    status: "active" | "checked" | "removed" | "completed" | "skipped" | "failed-review",
+    operationIdentity: string,
+    reviewIdentity?: string
+  ) {
+    const link = await this.getPantryLinkForItem(groceryItemId);
+    if (!link) return null;
+    const result = await pantryAttentionService.updateGroceryLinkLifecycle({
+      linkId: link.id,
+      status,
+      operationIdentity,
+      reviewIdentity: reviewIdentity ?? null,
+    });
+    await publishCommittedChange("pantry", "update", link.pantryItemId);
+    return result;
+  }
+
   async getPantryCompletionProposals(groceryListId: string) {
     await bootstrapDatabase();
     const list = await getListOrThrow(groceryListId);
@@ -189,6 +251,20 @@ export class GroceryService {
       list.items.map(async (item) => {
         const quantity = item.qty == null ? null : Number.parseFloat(item.qty);
         const calculation = await calculatePantryRequirement(item.name, quantity, item.unit);
+        const link = await this.getPantryLinkForItem(item.id);
+        const linkedPantryItem = link ? await pantryService.get(link.pantryItemId) : null;
+        const match = linkedPantryItem
+          ? {
+              status: "matched" as const,
+              item: {
+                id: linkedPantryItem.id,
+                name: linkedPantryItem.name,
+                stockMode: linkedPantryItem.stockMode as "always-available" | "track-quantity" | "replenish-to-target",
+              },
+              suggestions: [],
+              explanation: "Explicit Pantry link",
+            }
+          : calculation.match;
         return {
           groceryItemId: item.id,
           name: item.name,
@@ -196,7 +272,8 @@ export class GroceryService {
           unit: item.unit,
           checked: item.checked,
           ...calculation,
-          decisionRequired: calculation.match.status !== "matched",
+          match,
+          decisionRequired: match.status !== "matched",
         };
       })
     );
@@ -209,17 +286,37 @@ export class GroceryService {
     const results = [];
     for (const decision of decisions) {
       const item = items.get(decision.itemId);
-      if (!item || decision.action === "skip") continue;
+      if (!item) continue;
+      const reviewIdentity = decision.reviewIdentity ?? `grocery-review:${groceryListId}:${item.id}:${decision.action}`;
+      if (decision.action === "skip") {
+        await this.transitionPantryLink(item.id, "skipped", `grocery-review:${reviewIdentity}:skipped`, reviewIdentity);
+        results.push({ groceryItemId: item.id, status: "skipped" });
+        continue;
+      }
       const quantity = decision.purchasedQuantity ?? (item.qty == null ? null : Number.parseFloat(item.qty));
-      if (quantity == null || !Number.isFinite(quantity) || quantity <= 0) continue;
+      if (quantity == null || !Number.isFinite(quantity) || quantity <= 0) {
+        await this.transitionPantryLink(item.id, "failed-review", `grocery-review:${reviewIdentity}:failed`, reviewIdentity);
+        results.push({ groceryItemId: item.id, status: "failed-review", error: "A positive purchased quantity is required" });
+        continue;
+      }
 
       let pantryItemId = decision.pantryItemId;
+      const linked = await this.getPantryLinkForItem(item.id);
+      if (linked) pantryItemId = linked.pantryItemId;
       if (decision.action === "match" && pantryItemId) {
         const pantryItem = await pantryService.get(pantryItemId);
-        if (!pantryItem) throw new Error("Pantry item not found");
-        if (pantryItem.stockMode === "always-available") continue;
+        if (!pantryItem) {
+          await this.transitionPantryLink(item.id, "failed-review", `grocery-review:${reviewIdentity}:failed`, reviewIdentity);
+          results.push({ groceryItemId: item.id, status: "failed-review", error: "Pantry item not found" });
+          continue;
+        }
+        if (pantryItem.stockMode === "always-available") {
+          await this.transitionPantryLink(item.id, "skipped", `grocery-review:${reviewIdentity}:skipped`, reviewIdentity);
+          results.push({ groceryItemId: item.id, status: "skipped" });
+          continue;
+        }
       }
-      if (decision.action === "create") {
+      if (decision.action === "create" && !linked) {
         const normalizedName = normalizePantryIdentity(item.name);
         const existing = (await pantryService.list({ search: item.name }))
           .find((candidate) => candidate.normalizedName === normalizedName);
@@ -238,16 +335,27 @@ export class GroceryService {
           pantryItemId = created?.id;
         }
       }
-      if (!pantryItemId) throw new Error(`Pantry match is required for ${item.name}`);
-      const updated = await pantryService.applyStockAction(pantryItemId, {
-        type: "add",
-        location: decision.location ?? "Unspecified",
-        quantity,
-        unit: decision.unit ?? item.unit,
-        approximate: decision.approximate ?? false,
-        note: `Purchased from grocery list ${groceryListId}`,
-      });
-      results.push({ groceryItemId: item.id, pantryItemId, item: updated });
+      if (!pantryItemId) {
+        await this.transitionPantryLink(item.id, "failed-review", `grocery-review:${reviewIdentity}:failed`, reviewIdentity);
+        results.push({ groceryItemId: item.id, status: "failed-review", error: `Pantry match is required for ${item.name}` });
+        continue;
+      }
+      try {
+        const updated = await pantryService.applyStockAction(pantryItemId, {
+          type: "add",
+          location: decision.location ?? "Unspecified",
+          quantity,
+          unit: decision.unit ?? item.unit,
+          approximate: decision.approximate ?? false,
+          sourceIdentity: reviewIdentity,
+          note: `Purchased from grocery list ${groceryListId}`,
+        });
+        await this.transitionPantryLink(item.id, "completed", `grocery-review:${reviewIdentity}:completed`, reviewIdentity);
+        results.push({ groceryItemId: item.id, pantryItemId, status: "completed", item: updated });
+      } catch (error) {
+        await this.transitionPantryLink(item.id, "failed-review", `grocery-review:${reviewIdentity}:failed`, reviewIdentity);
+        results.push({ groceryItemId: item.id, pantryItemId, status: "failed-review", error: error instanceof Error ? error.message : "Unable to update Pantry" });
+      }
     }
     return results;
   }
@@ -262,7 +370,7 @@ export class GroceryService {
       orderBy: [{ createdAt: "desc" }],
     });
 
-    return sortGroceryLists(groceryLists).map(serializeGroceryList);
+    return Promise.all(sortGroceryLists(groceryLists).map(serializeGroceryList));
   }
 
   async getGroceryList(id: string) {
@@ -275,7 +383,7 @@ export class GroceryService {
       },
     });
 
-    return groceryList ? serializeGroceryList(groceryList) : null;
+    return groceryList ? await serializeGroceryList(groceryList) : null;
   }
 
   async getCurrentGroceryList() {
@@ -290,7 +398,50 @@ export class GroceryService {
 
     const groceryList = sortGroceryLists(groceryLists)[0] ?? null;
 
-    return groceryList ? serializeGroceryList(groceryList) : null;
+    return groceryList ? await serializeGroceryList(groceryList) : null;
+  }
+
+  async addPantryItemToCurrentList(
+    pantryItemId: string,
+    input: { operationIdentity: string; reviewIdentity?: string | null }
+  ) {
+    await bootstrapDatabase();
+    const existingLink = await pantryAttentionService.getGroceryLinkByOperation(input.operationIdentity);
+    if (existingLink) {
+      const existingItem = await prisma.groceryItem.findUnique({ where: { id: existingLink.groceryItemId } });
+      if (!existingItem) throw new Error("Linked grocery item not found");
+      return this.getGroceryList(existingItem.groceryListId);
+    }
+
+    const pantryItem = await pantryService.get(pantryItemId);
+    if (!pantryItem) throw new Error("Pantry item not found");
+
+    let currentList = await this.getCurrentGroceryList();
+    if (!currentList) {
+      currentList = await this.createGroceryList({ name: "Pantry Restock", date: null });
+    }
+    const maxOrder = await prisma.groceryItem.aggregate({
+      where: { groceryListId: currentList.id },
+      _max: { sortOrder: true },
+    });
+    const groceryItem = await prisma.groceryItem.create({
+      data: {
+        groceryListId: currentList.id,
+        name: pantryItem.name,
+        category: "Pantry",
+        notes: "Added from Pantry. Confirm purchase through Pantry review.",
+        checked: false,
+        sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
+      },
+    });
+    await publishCommittedChange("groceryList", "update", currentList.id);
+
+    await pantryAttentionService.createGroceryLink(pantryItemId, {
+      groceryItemId: groceryItem.id,
+      operationIdentity: input.operationIdentity,
+      reviewIdentity: input.reviewIdentity ?? null,
+    });
+    return this.getGroceryList(currentList.id);
   }
 
   async createGroceryList(input: CreateListInput) {
@@ -360,6 +511,11 @@ export class GroceryService {
   async deleteGroceryList(id: string) {
     await bootstrapDatabase();
 
+    const list = await getListOrThrow(id);
+    await Promise.all(list.items.map((item) =>
+      this.transitionPantryLink(item.id, "removed", `grocery-list:${id}:item:${item.id}:removed`)
+    ));
+
     await prisma.groceryList.delete({
       where: { id },
     });
@@ -405,7 +561,7 @@ export class GroceryService {
 
     const existing = await prisma.groceryItem.findUnique({
       where: { id: itemId },
-      select: { groceryListId: true },
+      select: { groceryListId: true, checked: true },
     });
 
     if (!existing || existing.groceryListId !== groceryListId) {
@@ -427,6 +583,14 @@ export class GroceryService {
       },
     });
 
+    if (input.checked !== undefined && input.checked !== existing.checked) {
+      await this.transitionPantryLink(
+        itemId,
+        input.checked ? "checked" : "active",
+        input.operationIdentity ?? `grocery-item:${itemId}:${input.checked ? "checked" : "unchecked"}`
+      );
+    }
+
     await publishCommittedChange("groceryList", "update", groceryListId);
     return serializeGroceryList(await getListOrThrow(groceryListId));
   }
@@ -442,6 +606,8 @@ export class GroceryService {
     if (!existing || existing.groceryListId !== groceryListId) {
       throw new Error("Grocery item not found");
     }
+
+    await this.transitionPantryLink(itemId, "removed", `grocery-item:${itemId}:removed`);
 
     await prisma.groceryItem.delete({
       where: {
@@ -489,6 +655,12 @@ export class GroceryService {
 
   async restoreGroceryListSnapshot(snapshot: GroceryListSnapshot) {
     await bootstrapDatabase();
+
+    const current = await getListOrThrow(snapshot.id);
+    const restoredIds = new Set(snapshot.items.map((item) => item.id));
+    await Promise.all(current.items
+      .filter((item) => !restoredIds.has(item.id))
+      .map((item) => this.transitionPantryLink(item.id, "removed", `grocery-snapshot:${snapshot.id}:item:${item.id}:removed`)));
 
     await prisma.$transaction(async (tx) => {
       await tx.groceryList.update({
@@ -548,6 +720,12 @@ export class GroceryService {
         },
       },
     });
+
+    await this.transitionPantryLink(
+      itemId,
+      checked ? "checked" : "active",
+      `grocery-item:${itemId}:${checked ? "checked" : "unchecked"}`
+    );
 
     await publishCommittedChange("groceryList", "update", item.groceryList.id);
     return serializeGroceryList({

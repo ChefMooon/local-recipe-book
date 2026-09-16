@@ -2,10 +2,10 @@
 
 ## 1. Prerequisites
 
-| Tool | Version | Install |
-|---|---|---|
+| Tool    | Version | Install            |
+| ------- | ------- | ------------------ |
 | Node.js | >= 20.x | https://nodejs.org |
-| npm | >= 10.x | Ships with Node.js |
+| npm     | >= 10.x | Ships with Node.js |
 
 ---
 
@@ -147,6 +147,7 @@ See [pantry.md](pantry.md) for the Pantry domain contract, user workflows, groce
 The canonical settings and environment reference is maintained in `docs/local-recipe-book-config.md`.
 
 Use this guide for development workflow and command usage, and use the config reference for:
+
 - App settings keys/defaults and semantics
 - Environment variable overrides
 - LAN and browser access setting details
@@ -199,6 +200,7 @@ myRoutes.get("/my-resource", async (c) => {
 ```
 
 Register it in `src/main/server/app.ts`:
+
 ```ts
 import { myRoutes } from "./routes/my-resource.js";
 app.route("/api", myRoutes);
@@ -236,7 +238,7 @@ export default function MyPage() {
 
 For any frontend or UI behavior changes, align with `docs/STYLE-GUIDE.md` before implementation.
 
-For Pantry changes, also preserve the service-owned calculation boundary and typed contracts described in [pantry.md](pantry.md). Update [data-management.md](data-management.md) when Pantry archive behavior changes.
+For Pantry changes, also preserve the service-owned calculation boundary and typed contracts described in [pantry.md](pantry.md). Attention is presentation state: it must not replace raw status, forecast data, quantities, inventory events, or the reviewed Pantry completion path. Pantry-to-grocery associations use exact IDs, and checking a grocery item is not proof of purchase. Renderer code uses the typed HTTP API client and platform boundary; it must not call `window.api` directly. Update [data-management.md](data-management.md) when Pantry archive behavior changes.
 
 ---
 
@@ -282,7 +284,6 @@ Packaged Windows artifacts are emitted by Electron Builder under the build outpu
 
 `npm run build` includes the electron-vite archive runtime check. `npm run build:win` includes the packaged `app.asar` check after Electron Builder completes. Do not treat an old `dist/` directory as evidence; the package check must run against the artifact produced by the current build.
 
-
 ## 10. Debugging
 
 ### Server logs
@@ -304,10 +305,10 @@ Press `F12` in the Electron window during development to open Chromium DevTools.
 ### SQLite lock issues
 
 If the server fails to start with `SQLITE_BUSY` or lock errors:
+
 - Ensure no other process is holding the app database file open.
 - Check any custom `LOCAL_RECIPE_BOOK_DATABASE_URL` override you are using.
 - Let the Electron app own the SQLite connection; the renderer should never touch the database directly.
-
 
 ## 11. Release Process
 

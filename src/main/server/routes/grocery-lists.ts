@@ -161,6 +161,7 @@ groceryListsRoutes.patch("/grocery-lists/:id/items/:itemId", async (c) => {
       notes?: string | null;
       meal?: string | null;
       checked?: boolean;
+      operationIdentity?: string;
     };
     const data = await groceryService.updateGroceryItem(id, itemId, body);
     return c.json({ data });

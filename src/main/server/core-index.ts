@@ -22,6 +22,7 @@ export { MealTypeService } from "./services/meal-type-service";
 export { MealSubTypeService } from "./services/meal-sub-type-service";
 export { RecipeService, type RecipeFilters } from "./services/recipe-service";
 export { PantryService } from "./services/pantry-service";
+export { PantryAttentionService } from "./services/pantry-attention-service";
 export {
   PreferenceService,
   type PreferenceListField,

@@ -78,6 +78,26 @@ export {
   PANTRY_STOCK_MODES,
   PANTRY_WARNING_SEVERITIES,
 } from "./schemas/pantry-schemas";
+export {
+  PantryAttentionMutationSchema,
+  PantryAttentionClearSchema,
+  PantryGroceryLinkCreateSchema,
+  PantryGroceryLinkLifecycleSchema,
+  PantryAttentionPayloadSchema,
+  PantryGroceryLinkPayloadSchema,
+  PANTRY_ATTENTION_SOURCES,
+  PANTRY_GROCERY_LINK_STATUSES,
+} from "./schemas/pantry-attention-schemas";
+export type {
+  PantryAttentionSource,
+  PantryGroceryLinkStatus,
+  PantryAttentionMutation,
+  PantryAttentionClear,
+  PantryGroceryLinkCreate,
+  PantryGroceryLinkLifecycle,
+  PantryAttentionPayload,
+  PantryGroceryLinkPayload,
+} from "./schemas/pantry-attention-schemas";
 export type {
   CreatePantryItemInput,
   UpdatePantryItemInput,

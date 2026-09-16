@@ -50,7 +50,7 @@ The manifest records the application version, export timestamp, selected scope, 
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | `meal-plan` | Scheduled and unscheduled meals, meal-type profiles/definitions, meal sub-type definitions, referenced recipes, recipe lineage/link closure, and available meal photos | Grocery lists, prep lists, preferences         |
 | `recipes`   | Recipes, ingredients, tags, source metadata, lineage, and linked recipe records                                                                                        | Meals, photos, grocery/prep lists, preferences |
-| `all`       | Everything in `meal-plan`, plus the complete recipe library, grocery lists/items, prep lists/items, checked state, allowlisted preferences, and Pantry state | Secrets and runtime/device configuration       |
+| `all`       | Everything in `meal-plan`, plus the complete recipe library, grocery lists/items, prep lists/items, checked state, allowlisted preferences, and Pantry state           | Secrets and runtime/device configuration       |
 
 Pantry archives always identify whether inventory history is included with the
 `historyIncluded` payload field. State-only imports preserve current locations,
@@ -58,6 +58,16 @@ lots, packages, aliases, and warning rules, then create one imported-baseline
 event per imported item/location. Full-history imports preserve event metadata
 and de-duplicate events by `sourceIdentity` (or a deterministic archive event
 identity when the source did not provide one).
+
+Pantry attention and exact grocery associations are included in `all` archives.
+Import resolves grocery list and item IDs before restoring Pantry links or
+linked attention. A missing grocery item is recorded in the import result as a
+stale reference, and the restored link and linked attention are inactive; a
+missing record can never restore an active suppression. Imported positive usable
+quantity increases reconcile an until-restocked mute after the transaction.
+Attention remains additive to raw status, so archive restore does not turn an
+empty or low item into an `ok` item and does not hide expiring, expired, or
+unavailable forecast attention.
 
 Meal-plan exports include every meal returned by the meal service, including unscheduled meals. A recipe dependency is included when a meal references it, and the recipe exporter closes over source-recipe and linked-sub-recipe references. Recipe-only archives never contain photo assets.
 
@@ -101,6 +111,13 @@ The current transport uses a JSON body containing a base64 `archive` string. App
 Preview does not mutate the database or filesystem. Identity matching is deterministic: recipes use normalized source URL and title, meals use date/meal type/name/sort order, lists use date/name, items include their parent and stable item fields, meal-type profiles use name, definitions use profile plus slug, sub-types use slug, and preferences use the default record.
 
 When conflicts exist, apply requires explicit decisions. `keep-local`, `skip`, and `import` are available for safe bulk actions; individual records may also use `replace`. Imported IDs are remapped before recipe, meal, grocery, prep, Pantry, and photo references are written. Pantry conflicts are grouped at the normalized item identity; same-location quantities are never silently merged. Separate locations remain separate, while non-conflicting Pantry records can import and unresolved conflicts remain visible in the review result. Unselected records are not silently overwritten, and the result reports imported, skipped, replaced, unresolved, conflict, and asset counts.
+
+Attention records and Pantry grocery links follow the same mapped-ID and
+conflict decisions. They are exact-ID associations, not normalized-name
+matches. Deleted grocery records close their active link and restore eligible
+Pantry attention; deleting a Pantry item removes its associated active state.
+Warning-rule and stock-mode edits cause attention to be re-evaluated from the
+current raw status and forecast rather than changing inventory truth.
 
 ### Preference reset
 

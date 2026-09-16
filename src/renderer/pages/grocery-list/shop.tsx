@@ -199,6 +199,9 @@ function GroceryShopContent({
                     {item.meal ? (
                       <span className={styles.itemMeal}>for {item.meal}</span>
                     ) : null}
+                    {item.pantryLink ? (
+                      <span className={styles.itemNotes}>Pantry linked; confirm review to record stock</span>
+                    ) : null}
                   </div>
                 </div>
                 <div>
@@ -292,7 +295,7 @@ export default function GroceryShopPage() {
         `/api/grocery-lists/${list.id}/items/${item.id}`,
         {
           method: "PATCH",
-          body: JSON.stringify({ checked: !item.checked }),
+          body: JSON.stringify({ checked: !item.checked, operationIdentity: `grocery-toggle:${item.id}:${Date.now()}-${Math.random()}` }),
         }
       );
 
@@ -368,7 +371,7 @@ export default function GroceryShopPage() {
             `/api/grocery-lists/${list.id}/items/${item.id}`,
             {
               method: "PATCH",
-              body: JSON.stringify({ checked: true }),
+              body: JSON.stringify({ checked: true, operationIdentity: `grocery-toggle:${item.id}:${Date.now()}-${Math.random()}` }),
             }
           )
         )

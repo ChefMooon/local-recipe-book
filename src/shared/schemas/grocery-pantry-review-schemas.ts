@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const PantryCompletionDecisionSchema = z.object({
   itemId: z.string().trim().min(1),
+  reviewIdentity: z.string().trim().min(1).max(200).optional(),
   action: z.enum(["match", "create", "skip"]),
   pantryItemId: z.string().trim().min(1).optional(),
   purchasedQuantity: z.number().finite().nonnegative().nullable().optional(),

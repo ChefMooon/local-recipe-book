@@ -142,6 +142,7 @@ export const PantryStockActionSchema = z.object({
   approximate: z.boolean().default(false),
   lotId: trimmedString.optional(),
   source: PantryStockSourceSchema.optional(),
+  sourceIdentity: trimmedString.optional(),
   note: z.string().trim().optional(),
   occurredAt: z.string().datetime().optional(),
 });

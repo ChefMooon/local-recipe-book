@@ -694,6 +694,40 @@ const PantryEventArchiveSchema = z.object({
 const pantryDailyUsageQuantitySchema = z.number().finite().positive().nullable().optional().default(null);
 const pantryDailyUsageUnitSchema = z.string().trim().min(1).max(100).nullable().optional().default(null);
 const pantryDailyUsageWarningDaysSchema = z.number().int().nonnegative().nullable().optional().default(null);
+const pantryDailyUsageStateSchema = z.object({
+  configRevision: z.number().int().positive(),
+  baselineLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  lastAppliedLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+}).strict();
+
+const PantryAttentionArchiveSchema = z.object({
+  id: archiveIdSchema,
+  pantryItemId: archiveIdSchema,
+  source: z.enum(["snooze", "until-restocked", "grocery-link"]),
+  expiresAt: archiveNullableDateSchema,
+  groceryLinkId: archiveIdSchema.nullable(),
+  operationIdentity: archiveIdSchema,
+  reviewIdentity: archiveIdSchema.nullable(),
+  active: z.boolean(),
+  closedAt: archiveNullableDateSchema,
+  closeReason: z.string().nullable(),
+  createdAt: archiveDateSchema,
+  updatedAt: archiveDateSchema,
+}).strict();
+
+const PantryGroceryLinkArchiveSchema = z.object({
+  id: archiveIdSchema,
+  pantryItemId: archiveIdSchema,
+  groceryItemId: archiveIdSchema,
+  status: z.enum(["active", "checked", "removed", "completed", "skipped", "failed-review", "unlinked"]),
+  active: z.boolean(),
+  operationIdentity: archiveIdSchema,
+  reviewIdentity: archiveIdSchema.nullable(),
+  closedAt: archiveNullableDateSchema,
+  closeReason: z.string().nullable(),
+  createdAt: archiveDateSchema,
+  updatedAt: archiveDateSchema,
+}).strict();
 
 export const PantryArchiveItemSchema = z.object({
   id: archiveIdSchema,
@@ -710,6 +744,7 @@ export const PantryArchiveItemSchema = z.object({
   dailyUsageQuantity: pantryDailyUsageQuantitySchema,
   dailyUsageUnit: pantryDailyUsageUnitSchema,
   dailyUsageWarningDays: pantryDailyUsageWarningDaysSchema,
+  dailyUsageState: pantryDailyUsageStateSchema.optional(),
   notes: z.string().nullable(),
   createdAt: archiveDateSchema,
   updatedAt: archiveDateSchema,
@@ -732,8 +767,12 @@ export const PantryPayloadSchema = z.object({
   historyIncluded: z.boolean(),
   items: z.array(PantryArchiveItemSchema),
   events: z.array(PantryEventArchiveSchema),
+  attention: z.array(PantryAttentionArchiveSchema).optional(),
+  groceryLinks: z.array(PantryGroceryLinkArchiveSchema).optional(),
 }).passthrough();
 export type PantryPayload = z.infer<typeof PantryPayloadSchema>;
+export type PantryAttentionArchive = z.infer<typeof PantryAttentionArchiveSchema>;
+export type PantryGroceryLinkArchive = z.infer<typeof PantryGroceryLinkArchiveSchema>;
 
 export const DomainPayloadEnvelopeSchema = z
   .object({
@@ -768,10 +807,19 @@ export const ArchiveIdMapSchema = z
     mealSubTypeDefinitions: z.record(archiveIdSchema, archiveIdSchema),
     preferences: z.record(archiveIdSchema, archiveIdSchema),
     pantryItems: z.record(archiveIdSchema, archiveIdSchema),
+    pantryGroceryLinks: z.record(archiveIdSchema, archiveIdSchema),
     assets: z.record(archiveIdSchema, archiveIdSchema),
   })
   .strict();
 export type ArchiveIdMap = z.infer<typeof ArchiveIdMapSchema>;
+
+export const ArchiveStaleReferenceSchema = z.object({
+  kind: z.literal("grocery-link"),
+  pantryItemId: archiveIdSchema,
+  groceryItemId: archiveIdSchema,
+  reason: z.literal("missing-grocery-item"),
+}).strict();
+export type ArchiveStaleReference = z.infer<typeof ArchiveStaleReferenceSchema>;
 
 export const ConflictBulkDecisionSchema = z.enum([
   "keep-local",
@@ -868,6 +916,7 @@ export const ImportSummarySchema = z
       })
       .strict(),
     preferencesRestored: z.boolean(),
+    staleReferences: z.array(ArchiveStaleReferenceSchema).default([]),
   })
   .strict();
 export type ImportSummary = z.infer<typeof ImportSummarySchema>;
@@ -887,6 +936,7 @@ export const ArchiveImportRequestSchema = z
       mealSubTypeDefinitions: {},
       preferences: {},
       pantryItems: {},
+      pantryGroceryLinks: {},
       assets: {},
     }),
     restorePreferences: z.boolean().default(false),

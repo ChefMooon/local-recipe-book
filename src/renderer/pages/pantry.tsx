@@ -14,12 +14,15 @@ import {
   ArrowCounterClockwise,
   ArrowLeft,
   ArrowsDownUp,
+  Bell,
   CaretDown,
   Check,
+  Clock,
   Circle,
   MagnifyingGlass,
   Package,
   Plus,
+  ShoppingCart,
   Trash,
   Warning,
   X,
@@ -500,11 +503,12 @@ export function AddDatedLotModal({
   </ModalShell>;
 }
 
-export function PantryEditor({ item, onStock, onAddLot, onRemoveLot, onEdit, onDelete }: { item: PantryItemPayload; onStock: (type: "add" | "consume" | "mark-empty") => void; onAddLot: () => void; onRemoveLot: (lot: PantryLotPayload, location: string) => void; onEdit: () => void; onDelete: () => void }) {
+export function PantryEditor({ item, groceryLink, onStock, onAddLot, onRemoveLot, onEdit, onDelete, onAttention, onClearAttention, onAddToGrocery }: { item: PantryItemPayload; groceryLink: import("@shared/schemas/pantry-attention-schemas").PantryGroceryLinkPayload | null; onStock: (type: "add" | "consume" | "mark-empty") => void; onAddLot: () => void; onRemoveLot: (lot: PantryLotPayload, location: string) => void; onEdit: () => void; onDelete: () => void; onAttention: (source: "snooze" | "until-restocked") => void; onClearAttention: () => void; onAddToGrocery: () => void }) {
   const lotDates = item.locations.flatMap((location) => location.lots.map((lot) => lot.expiresAt).filter(Boolean) as string[]);
   const earliestExpiry = lotDates.sort()[0];
   const hasNoUsableStock = item.usableQuantity != null && item.usableQuantity <= 0 && !hasDatedLotStock(item);
   const isEmpty = item.status === "empty" || hasNoUsableStock;
+  const canSuppress = item.attention.stock || (item.attention.forecast && item.forecast.state === "available");
 
   return <section className={styles.editor} aria-label={`${item.name} details`}>
     <div className={styles.editorTopline}><span className={styles.eyebrow}>{item.category}</span><span className={`${styles.status} ${styles[`status-${item.status}`]}`}><Circle weight="fill" aria-hidden="true" /> {statusLabels[item.status]}</span></div>
@@ -512,6 +516,17 @@ export function PantryEditor({ item, onStock, onAddLot, onRemoveLot, onEdit, onD
     <p className={styles.editorMeta}>Updated {formatUpdated(item.updatedAt)} · {getLocationLabel(item)}</p>
     <div className={styles.editorStatus}><strong>{formatQuantity(item)}</strong>{earliestExpiry ? <span><Warning aria-hidden="true" /> Expires {formatUpdated(earliestExpiry)}</span> : <span>No dated lots recorded</span>}</div>
     {item.forecast.state !== "disabled" ? <div className={`${styles.forecast} ${item.forecast.attention ? styles.forecastAttention : ""}`} role="status"><strong>{item.forecast.attention ? "Forecast attention" : "Usage forecast"}</strong><span>{formatForecast(item)}</span></div> : null}
+    {(canSuppress || item.attention.safety || item.attention.suppressed) ? <div className={`${styles.attentionPanel} ${item.attention.suppressed ? styles.attentionMuted : ""}`}>
+      <div><strong>{item.attention.suppressed ? "Attention muted" : "Pantry attention"}</strong><span>Raw status: {statusLabels[item.status]}{item.forecast.attention ? " · Forecast attention" : ""}</span></div>
+      {item.attention.safety ? <p className={styles.attentionSafety} role="alert"><Warning aria-hidden="true" /> Safety warnings remain visible for expiring, expired, or unavailable forecast data.</p> : null}
+      {item.attention.suppressed ? <p className={styles.muted}>This warning will return when the mute expires or is restored.</p> : null}
+      <div className={styles.attentionActions}>
+        {canSuppress && groceryLink?.active !== true ? <Button onClick={onAddToGrocery} variant="accent"><ShoppingCart aria-hidden="true" /> {groceryLink ? "Relink grocery item" : "Add to grocery list"}</Button> : null}
+        {canSuppress && !item.attention.suppressed ? <><Button onClick={() => onAttention("snooze")} variant="outline"><Clock aria-hidden="true" /> Snooze 7 days</Button><Button onClick={() => onAttention("until-restocked")} variant="outline"><Bell aria-hidden="true" /> Until restocked</Button></> : null}
+        {item.attention.suppressed ? <Button onClick={onClearAttention} variant="outline"><Bell aria-hidden="true" /> Restore attention</Button> : null}
+      </div>
+    </div> : null}
+    {groceryLink ? <div className={styles.groceryLinkPanel} role="status"><strong>Grocery relationship</strong><span>{groceryLink.groceryItemName ?? "Linked grocery item"}{groceryLink.groceryListName ? ` · ${groceryLink.groceryListName}` : ""}</span><small>{groceryLink.status === "active" ? "Shopping intent is linked. It is not Pantry stock until you confirm the Pantry review." : `Grocery item ${groceryLink.status}. Pantry stock was not changed by this grocery action.`}</small></div> : null}
     <div className={styles.quickActions} aria-label="Quick stock actions">
       <Button onClick={() => onStock("add")}><Plus aria-hidden="true" /> Add stock</Button>
       <Button disabled={hasNoUsableStock} onClick={() => onStock("consume")} variant="outline"><Check aria-hidden="true" /> Use stock</Button>
@@ -561,10 +576,26 @@ export default function PantryPage() {
   const lotMutation = useMutation({ mutationFn: ({ id, input }: { id: string; input: PantryLotInput }) => fetchJson(ApiPaths.pantryItemLots(id), { method: "POST", body: JSON.stringify(input) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pantry"] }) });
   const updateLotMutation = useMutation({ mutationFn: ({ id, lotId, input }: { id: string; lotId: string; input: PantryLotInput }) => fetchJson(ApiPaths.pantryItemLot(id, lotId), { method: "PATCH", body: JSON.stringify(input) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pantry"] }) });
   const removeLotMutation = useMutation({ mutationFn: ({ id, lotId }: { id: string; lotId: string }) => fetchJson(ApiPaths.pantryItemLot(id, lotId), { method: "DELETE" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pantry"] }) });
+  const attentionMutation = useMutation({ mutationFn: ({ id, source }: { id: string; source: "snooze" | "until-restocked" }) => fetchJson(ApiPaths.pantryItemAttention(id), { method: "PUT", body: JSON.stringify({ source, expiresAt: source === "snooze" ? new Date(Date.now() + 7 * 86_400_000).toISOString() : null, operationIdentity: `pantry-attention-${Date.now()}-${Math.random()}` }) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pantry"] }) });
+  const clearAttentionMutation = useMutation({ mutationFn: ({ id, attentionId }: { id: string; attentionId: string }) => fetchJson(ApiPaths.pantryItemAttention(id), { method: "DELETE", body: JSON.stringify({ attentionId, operationIdentity: `pantry-attention-clear-${Date.now()}-${Math.random()}` }) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pantry"] }) });
+  const addToGroceryMutation = useMutation({
+    mutationFn: ({ id }: { id: string }) => fetchJson(ApiPaths.pantryItemGroceryLink(id), { method: "POST", body: JSON.stringify({ operationIdentity: `pantry-grocery-${id}-${Date.now()}-${Math.random()}` }) }),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["pantry"] });
+      void queryClient.invalidateQueries({ queryKey: ["grocery-lists"] });
+      void queryClient.invalidateQueries({ queryKey: ["grocery-list"] });
+      void queryClient.invalidateQueries({ queryKey: ["pantry", "grocery-link", variables.id] });
+    },
+  });
   const deleteMutation = useMutation({ mutationFn: (id: string) => fetchJson(ApiPaths.pantryItem(id), { method: "DELETE" }), onSuccess: () => { setSelectedId(null); queryClient.invalidateQueries({ queryKey: ["pantry"] }); } });
 
   const items = listQuery.data ?? [];
   const selectedItem = items.find((item) => item.id === selectedId) ?? items[0] ?? null;
+  const groceryLinkQuery = useQuery({
+    queryKey: ["pantry", "grocery-link", selectedItem?.id],
+    enabled: apiReady && Boolean(selectedItem?.id),
+    queryFn: () => fetchJson<{ data: import("@shared/schemas/pantry-attention-schemas").PantryGroceryLinkPayload | null }>(ApiPaths.pantryItemGroceryLink(selectedItem?.id ?? "")).then((response) => response.data),
+  });
   const summary = summaryQuery.data;
   const queryError = listQuery.error ?? summaryQuery.error;
   const noMatches = !listQuery.isLoading && items.length === 0;
@@ -573,7 +604,7 @@ export default function PantryPage() {
   useEffect(() => { if (selectedItem && !items.some((item) => item.id === selectedId)) setSelectedId(selectedItem.id); }, [items, selectedId, selectedItem]);
 
   const statCards = useMemo((): Array<[string, number, Filter]> => summary ? [
-    ["Tracked items", summary.trackedItems, "all" as Filter], ["Low stock", summary.lowStock, "low-stock" as Filter], ["Empty", summary.empty, "empty" as Filter], ["Expiring soon", summary.expiringSoon, "expiring-soon" as Filter], ["Expired", summary.expired, "expired" as Filter],
+    ["Tracked items", summary.trackedItems, "all" as Filter], ["Attention", summary.attention, "all" as Filter], ["Low stock", summary.lowStock, "low-stock" as Filter], ["Empty", summary.empty, "empty" as Filter], ["Expiring soon", summary.expiringSoon, "expiring-soon" as Filter], ["Expired", summary.expired, "expired" as Filter],
   ] : [], [summary]);
 
   if (queryError) return <div className={styles.page}><RouteErrorState onRetry={() => { void listQuery.refetch(); void summaryQuery.refetch(); }} title={isRateLimitedApiError(queryError) ? "Pantry is temporarily rate limited." : "Unable to load Pantry."} description="Check your connection and retry." /></div>;
@@ -586,9 +617,9 @@ export default function PantryPage() {
         <div className={styles.collectionToolbar}><label className={styles.search}><MagnifyingGlass aria-hidden="true" /><span className="sr-only">Search Pantry</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search items, aliases, locations..." /></label><div className={styles.sort}><ArrowsDownUp aria-hidden="true" /><PantrySortSelect value={sort} onChange={setSort} /></div></div>
         <div className={styles.filters} aria-label="Pantry filters">{filters.map((item) => <button aria-pressed={filter === item.id} className={filter === item.id ? styles.filterActive : ""} key={item.id} onClick={() => setFilter(item.id)} type="button">{item.label}</button>)}</div>
         <div className={styles.collectionCount}>{listQuery.isLoading ? "Loading Pantry..." : listQuery.isFetching ? "Updating Pantry..." : `${items.length} ${items.length === 1 ? "item" : "items"}`}</div>
-        {noMatches ? <div className={styles.empty}><Archive aria-hidden="true" size={28} /><strong>{search || filter !== "all" ? "No Pantry items match" : "Your Pantry is empty"}</strong><span>{search || filter !== "all" ? "Try another search or clear the filter." : "Add your first household item to start tracking stock."}</span>{search || filter !== "all" ? <Button onClick={() => { setSearch(""); setFilter("all"); }} variant="outline">Clear view</Button> : null}</div> : <div className={styles.rows}>{items.map((item) => <button aria-current={selectedItem?.id === item.id ? "true" : undefined} className={`${styles.row} ${selectedItem?.id === item.id ? styles.rowSelected : ""}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileEditor(true); }} type="button"><span className={styles.rowMain}><strong>{item.name}</strong><small>{getLocationLabel(item)} · {formatQuantity(item)}</small>{item.forecast.state !== "disabled" ? <small className={item.forecast.attention ? styles.forecastRowAttention : undefined}>{item.forecast.attention ? `Forecast: ${formatForecast(item)}` : item.forecast.state === "available" ? `${item.forecast.remainingDays?.toFixed(1)} days remaining` : formatForecast(item)}</small> : null}</span><span className={`${styles.status} ${styles[`status-${item.status}`]}`}><Circle aria-hidden="true" weight="fill" /> {statusLabels[item.status]}{item.forecast.attention ? " · Forecast attention" : ""}</span></button>)}</div>}
+        {noMatches ? <div className={styles.empty}><Archive aria-hidden="true" size={28} /><strong>{search || filter !== "all" ? "No Pantry items match" : "Your Pantry is empty"}</strong><span>{search || filter !== "all" ? "Try another search or clear the filter." : "Add your first household item to start tracking stock."}</span>{search || filter !== "all" ? <Button onClick={() => { setSearch(""); setFilter("all"); }} variant="outline">Clear view</Button> : null}</div> : <div className={styles.rows}>{items.map((item) => <button aria-current={selectedItem?.id === item.id ? "true" : undefined} className={`${styles.row} ${selectedItem?.id === item.id ? styles.rowSelected : ""}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileEditor(true); }} type="button"><span className={styles.rowMain}><strong>{item.name}</strong><small>{getLocationLabel(item)} · {formatQuantity(item)}</small>{item.forecast.state !== "disabled" ? <small className={item.forecast.attention ? styles.forecastRowAttention : undefined}>{item.forecast.attention ? `Forecast: ${formatForecast(item)}` : item.forecast.state === "available" ? `${item.forecast.remainingDays?.toFixed(1)} days remaining` : formatForecast(item)}</small> : null}</span><span className={`${styles.status} ${styles[`status-${item.status}`]}`}><Circle aria-hidden="true" weight="fill" /> {statusLabels[item.status]}{item.forecast.attention ? " · Forecast attention" : ""}{item.attention.suppressed ? " · Attention muted" : ""}</span></button>)}</div>}
       </section>
-      {selectedItem ? <section className={`${styles.editorPane} ${mobileEditor ? styles.editorVisible : ""}`}><button className={styles.mobileBack} onClick={() => setMobileEditor(false)} type="button"><ArrowLeft aria-hidden="true" /> Back to items</button><PantryEditor item={selectedItem} onStock={(type) => { if (type === "add") setAddStockItem(selectedItem); else if (type === "consume") setUseStockItem(selectedItem); else setPendingStockAction(type); }} onAddLot={() => setLotItem(selectedItem)} onRemoveLot={(lot, location) => setRemovingLot({ item: selectedItem, lot, location })} onEdit={() => { setEditingItem(selectedItem); setModalOpen(false); }} onDelete={() => setDeletingItem(selectedItem)} /></section> : null}
+      {selectedItem ? <section className={`${styles.editorPane} ${mobileEditor ? styles.editorVisible : ""}`}><button className={styles.mobileBack} onClick={() => setMobileEditor(false)} type="button"><ArrowLeft aria-hidden="true" /> Back to items</button><PantryEditor item={selectedItem} groceryLink={groceryLinkQuery.data ?? null} onStock={(type) => { if (type === "add") setAddStockItem(selectedItem); else if (type === "consume") setUseStockItem(selectedItem); else setPendingStockAction(type); }} onAddLot={() => setLotItem(selectedItem)} onRemoveLot={(lot, location) => setRemovingLot({ item: selectedItem, lot, location })} onEdit={() => { setEditingItem(selectedItem); setModalOpen(false); }} onDelete={() => setDeletingItem(selectedItem)} onAttention={(source) => attentionMutation.mutate({ id: selectedItem.id, source })} onClearAttention={() => { if (selectedItem.attention.id) clearAttentionMutation.mutate({ id: selectedItem.id, attentionId: selectedItem.attention.id }); }} onAddToGrocery={() => addToGroceryMutation.mutate({ id: selectedItem.id })} /></section> : null}
     </div>
     {modalOpen ? <PantryManagementModal onClose={() => setModalOpen(false)} onCreateLots={async (id, inputs) => { for (const input of inputs) await lotMutation.mutateAsync({ id, input }); }} onSave={async (input) => (await createMutation.mutateAsync(input as CreatePantryItemInput)).data} /> : null}
     {editingItem ? <PantryManagementModal item={editingItem} onClose={() => setEditingItem(null)} onAddLots={async (inputs) => { for (const input of inputs) await lotMutation.mutateAsync({ id: editingItem.id, input }); }} onUpdateLots={async (inputs) => { for (const input of inputs) await updateLotMutation.mutateAsync({ id: editingItem.id, lotId: input.id, input }); }} onSave={async (input) => { await updateMutation.mutateAsync({ id: editingItem.id, input: input as UpdatePantryItemInput }); }} /> : null}

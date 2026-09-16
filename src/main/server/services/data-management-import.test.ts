@@ -10,6 +10,7 @@ const prismaMock = vi.hoisted(() => ({
   mealTypeProfile: { findMany: vi.fn() },
   mealSubTypeDefinition: { findMany: vi.fn() },
   userPreference: { findUnique: vi.fn() },
+  pantryItem: { findMany: vi.fn() },
   syncState: {
     findUnique: vi.fn().mockResolvedValue(null),
     upsert: vi.fn().mockImplementation(async ({ update }: { update: { value: string } }) => update),
@@ -169,6 +170,15 @@ function createTransaction() {
     recipeTag: { deleteMany: vi.fn(), createMany: vi.fn() },
     recipe: { deleteMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     userPreference: { upsert: vi.fn() },
+    pantryItem: { deleteMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    pantryAlias: { deleteMany: vi.fn(), createMany: vi.fn() },
+    pantryLocationStock: { deleteMany: vi.fn(), create: vi.fn() },
+    pantryLot: { create: vi.fn() },
+    pantryPackage: { deleteMany: vi.fn(), createMany: vi.fn() },
+    pantryWarningRule: { deleteMany: vi.fn(), createMany: vi.fn() },
+    pantryInventoryEvent: { deleteMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
+    pantryGroceryLink: { deleteMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(null), updateMany: vi.fn(), create: vi.fn() },
+    pantryAttention: { deleteMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(null), updateMany: vi.fn(), create: vi.fn() },
   };
   return tx;
 }
@@ -182,6 +192,7 @@ function configureSnapshot() {
   prismaMock.mealTypeProfile.findMany.mockResolvedValue([]);
   prismaMock.mealSubTypeDefinition.findMany.mockResolvedValue([]);
   prismaMock.userPreference.findUnique.mockResolvedValue(null);
+  prismaMock.pantryItem.findMany.mockResolvedValue([]);
 }
 
 function createService() {
@@ -353,6 +364,129 @@ describe("DataManagementService import validation and restore", () => {
     expect(parentCreate.sourceRecipeId).toBe(subCreate.id);
     expect(result.summary.replaced).toBe(0);
     expect(result.summary.imported).toBe(2);
+  });
+
+  it("maps Pantry attention links after grocery IDs and reports stale grocery references", async () => {
+    const pantryItem: DataArchivePayload = {
+      domain: "pantry",
+      version: 1,
+      historyIncluded: false,
+      items: [{
+        id: "pantry-source",
+        name: "Milk",
+        normalizedName: "milk",
+        category: "Dairy",
+        stockMode: "track-quantity",
+        warningThreshold: 1,
+        warningUnit: "l",
+        expirationWarningDays: null,
+        replenishmentTarget: null,
+        replenishmentUnit: null,
+        replenishmentQuantity: null,
+        dailyUsageQuantity: null,
+        dailyUsageUnit: null,
+        dailyUsageWarningDays: null,
+        notes: null,
+        createdAt: dates.createdAt,
+        updatedAt: dates.updatedAt,
+        aliases: [],
+        locations: [],
+        packages: [],
+        warningRules: [],
+      }],
+      events: [],
+      groceryLinks: [
+        {
+          id: "link-source",
+          pantryItemId: "pantry-source",
+          groceryItemId: "grocery-source",
+          status: "active",
+          active: true,
+          operationIdentity: "link-operation",
+          reviewIdentity: "link-review",
+          closedAt: null,
+          closeReason: null,
+          createdAt: dates.createdAt,
+          updatedAt: dates.updatedAt,
+        },
+        {
+          id: "stale-link-source",
+          pantryItemId: "pantry-source",
+          groceryItemId: "missing-grocery",
+          status: "active",
+          active: true,
+          operationIdentity: "stale-link-operation",
+          reviewIdentity: null,
+          closedAt: null,
+          closeReason: null,
+          createdAt: dates.createdAt,
+          updatedAt: dates.updatedAt,
+        },
+      ],
+      attention: [
+        {
+          id: "attention-source",
+          pantryItemId: "pantry-source",
+          source: "grocery-link",
+          expiresAt: null,
+          groceryLinkId: "link-source",
+          operationIdentity: "attention-operation",
+          reviewIdentity: "attention-review",
+          active: true,
+          closedAt: null,
+          closeReason: null,
+          createdAt: dates.createdAt,
+          updatedAt: dates.updatedAt,
+        },
+        {
+          id: "stale-attention-source",
+          pantryItemId: "pantry-source",
+          source: "grocery-link",
+          expiresAt: null,
+          groceryLinkId: "stale-link-source",
+          operationIdentity: "stale-attention-operation",
+          reviewIdentity: null,
+          active: true,
+          closedAt: null,
+          closeReason: null,
+          createdAt: dates.createdAt,
+          updatedAt: dates.updatedAt,
+        },
+      ],
+    };
+    const grocery: DataArchivePayload = {
+      domain: "grocery",
+      version: 1,
+      lists: [{
+        id: "list-source",
+        name: "Weekly",
+        date: null,
+        favourite: false,
+        ...dates,
+        items: [{
+          id: "grocery-source",
+          name: "Milk",
+          qty: "1",
+          unit: "l",
+          category: "Dairy & Eggs",
+          notes: null,
+          meal: null,
+          checked: false,
+          sortOrder: 0,
+        }],
+      }],
+    };
+    const tx = createTransaction();
+    prismaMock.$transaction.mockImplementation(async (callback: (value: typeof tx) => unknown) => callback(tx));
+    const result = await createService().applyImport(archive("all", { grocery, pantry: pantryItem }), { mode: "merge" });
+
+    const linkCreate = tx.pantryGroceryLink.create.mock.calls.find(([call]) => call.data.operationIdentity === "link-operation")?.[0].data;
+    const attentionCreate = tx.pantryAttention.create.mock.calls.find(([call]) => call.data.operationIdentity === "attention-operation")?.[0].data;
+    const staleAttentionCreate = tx.pantryAttention.create.mock.calls.find(([call]) => call.data.operationIdentity === "stale-attention-operation")?.[0].data;
+    expect(linkCreate.groceryItemId).toBe("grocery-source");
+    expect(attentionCreate.groceryLinkId).toBe(linkCreate.id);
+    expect(staleAttentionCreate.active).toBe(false);
+    expect(result.summary.staleReferences).toEqual([{ kind: "grocery-link", pantryItemId: "pantry-source", groceryItemId: "missing-grocery", reason: "missing-grocery-item" }]);
   });
 
   it("creates a recovery backup and keeps replace content-only unless preferences are opted in", async () => {

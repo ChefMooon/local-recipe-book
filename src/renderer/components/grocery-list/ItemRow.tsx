@@ -107,6 +107,7 @@ export function ItemRow({
             ))}
           </select>
         </div>
+        {item.pantryLink ? <span className={styles.pantryLinkBadge} title="This item is linked to a Pantry item; it is not purchased stock">Pantry {item.pantryLink.status === "active" ? "linked" : item.pantryLink.status}</span> : null}
         <select
           aria-label={`Category for ${item.name}`}
           className={styles.itemCatSelect}

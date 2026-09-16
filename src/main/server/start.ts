@@ -13,6 +13,7 @@ import { getSetting } from "../settings/store";
 import { clearPairingCodes } from "./lib/pairing";
 import { shutdownSyncConnections } from "./routes/sync";
 import type { ServerConfig } from "@shared/config/server-config";
+import { reconcilePantryDailyUsage } from "./services/pantry-daily-usage";
 
 // ── State ────────────────────────────────────────────────────
 let httpServer: ServerType | null = null;
@@ -164,6 +165,7 @@ export async function startServer(): Promise<ServerInfo> {
 
   // Bootstrap database
   await bootstrapDatabase();
+  await reconcilePantryDailyUsage();
 
   // Build server config (no TOML file — constructed from settings)
   const configuredPort = (getSetting("server_port") as number | undefined) ?? 3001;

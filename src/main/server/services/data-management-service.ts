@@ -17,6 +17,7 @@ import {
   saveMealPhotoDataUrl,
 } from "../lib/meal-photo-storage";
 import { prisma } from "../lib/prisma";
+import { localDateKey } from "./pantry-daily-usage";
 import {
   ArchiveManifestSchema,
   ArchiveIdMapSchema,
@@ -31,6 +32,7 @@ import {
   DATA_ARCHIVE_LAYOUT,
   DATA_ARCHIVE_SCHEMA_VERSION,
   DATA_ARCHIVE_SCOPE_DOMAINS,
+  type ArchiveStaleReference,
   DataArchiveAssetMimeTypeSchema,
   DataArchivePayloadSchema,
   ExportScopeSchema,
@@ -62,6 +64,7 @@ import { PrepListService } from "./prep-list-service";
 import { PreferenceService } from "./preference-service";
 import { RecipeService } from "./recipe-service";
 import { publishCommittedChange } from "./change-event-bus";
+import type { PantryService } from "./pantry-service";
 
 type PhotoReader = typeof readMealPhotoFile;
 type PhotoWriter = typeof saveMealPhotoDataUrl;
@@ -104,6 +107,7 @@ export type DataManagementApplyResult = {
       failed: number;
     };
     preferencesRestored: boolean;
+    staleReferences: ArchiveStaleReference[];
   };
   backupPath?: string;
 };
@@ -116,6 +120,7 @@ export type DataManagementServiceDependencies = {
   mealTypeService: Pick<MealTypeService, "listProfiles">;
   mealSubTypeService: Pick<MealSubTypeService, "listDefinitions">;
   preferenceService: Pick<PreferenceService, "getPreferences">;
+  pantryService?: Pick<PantryService, "list" | "reconcileRestock">;
   readPhoto: PhotoReader;
   writePhoto: PhotoWriter;
   deletePhoto: PhotoDeleter;
@@ -271,6 +276,7 @@ function emptyArchiveIdMap(): ArchiveIdMap {
     mealSubTypeDefinitions: {},
     preferences: {},
     pantryItems: {},
+    pantryGroceryLinks: {},
     assets: {},
   };
 }
@@ -495,6 +501,7 @@ type MutationCounts = {
   unresolved: number;
   assets: { imported: number; skipped: number; failed: number };
   preferencesRestored: boolean;
+  staleReferences: ArchiveStaleReference[];
 };
 
 export class DataManagementService {
@@ -940,11 +947,24 @@ export class DataManagementService {
         locations: { include: { lots: true }, orderBy: { normalizedLocation: "asc" } },
         packages: { orderBy: { createdAt: "asc" } },
         warningRules: { orderBy: { createdAt: "asc" } },
+        dailyUsageState: true,
       },
       orderBy: [{ normalizedName: "asc" }, { id: "asc" }],
     });
     const events = historyIncluded
       ? await (prisma as unknown as { pantryInventoryEvent: typeof prisma.pantryInventoryEvent }).pantryInventoryEvent.findMany({ orderBy: [{ occurredAt: "asc" }, { id: "asc" }] })
+      : [];
+    const attentionDelegate = (prisma as unknown as {
+      pantryAttention?: typeof prisma.pantryAttention;
+    }).pantryAttention;
+    const groceryLinkDelegate = (prisma as unknown as {
+      pantryGroceryLink?: typeof prisma.pantryGroceryLink;
+    }).pantryGroceryLink;
+    const attention = attentionDelegate
+      ? await attentionDelegate.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] })
+      : [];
+    const groceryLinks = groceryLinkDelegate
+      ? await groceryLinkDelegate.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] })
       : [];
 
     return {
@@ -966,6 +986,11 @@ export class DataManagementService {
         dailyUsageQuantity: item.dailyUsageQuantity,
         dailyUsageUnit: item.dailyUsageUnit,
         dailyUsageWarningDays: item.dailyUsageWarningDays,
+        dailyUsageState: historyIncluded && item.dailyUsageState ? {
+          configRevision: item.dailyUsageState.configRevision,
+          baselineLocalDate: item.dailyUsageState.baselineLocalDate,
+          lastAppliedLocalDate: item.dailyUsageState.lastAppliedLocalDate,
+        } : undefined,
         notes: item.notes,
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
@@ -1014,6 +1039,33 @@ export class DataManagementService {
         metadataJson: event.metadataJson,
         occurredAt: event.occurredAt.toISOString(),
         importedAt: toIsoDate(event.importedAt),
+      })),
+      attention: attention.map((state) => ({
+        id: state.id,
+        pantryItemId: state.pantryItemId,
+        source: state.source,
+        expiresAt: toIsoDate(state.expiresAt),
+        groceryLinkId: state.groceryLinkId,
+        operationIdentity: state.operationIdentity,
+        reviewIdentity: state.reviewIdentity,
+        active: state.active,
+        closedAt: toIsoDate(state.closedAt),
+        closeReason: state.closeReason,
+        createdAt: state.createdAt.toISOString(),
+        updatedAt: state.updatedAt.toISOString(),
+      })),
+      groceryLinks: groceryLinks.map((link) => ({
+        id: link.id,
+        pantryItemId: link.pantryItemId,
+        groceryItemId: link.groceryItemId,
+        status: link.status,
+        active: link.active,
+        operationIdentity: link.operationIdentity,
+        reviewIdentity: link.reviewIdentity,
+        closedAt: toIsoDate(link.closedAt),
+        closeReason: link.closeReason,
+        createdAt: link.createdAt.toISOString(),
+        updatedAt: link.updatedAt.toISOString(),
       })),
     };
   }
@@ -1847,6 +1899,9 @@ export class DataManagementService {
             addNew("pantryItems", item);
           }
         }
+        for (const link of payload.groceryLinks ?? []) {
+          addNew("pantryGroceryLinks", link);
+        }
       }
     }
 
@@ -2156,7 +2211,11 @@ export class DataManagementService {
     const pantryTx = tx as ImportTransaction & {
       pantryInventoryEvent?: ImportTransaction["pantryInventoryEvent"];
       pantryItem?: ImportTransaction["pantryItem"];
+      pantryAttention?: ImportTransaction["pantryAttention"];
+      pantryGroceryLink?: ImportTransaction["pantryGroceryLink"];
     };
+    await pantryTx.pantryAttention?.deleteMany();
+    await pantryTx.pantryGroceryLink?.deleteMany();
     await pantryTx.pantryInventoryEvent?.deleteMany();
     await pantryTx.pantryItem?.deleteMany();
     await tx.recipeLink.deleteMany();
@@ -2570,6 +2629,9 @@ export class DataManagementService {
     if (pantry) {
       const pantryItemDelegate = (tx as unknown as { pantryItem?: typeof tx.pantryItem }).pantryItem;
       if (!pantryItemDelegate) return;
+      const pantryLinkDelegate = (tx as unknown as { pantryGroceryLink?: typeof tx.pantryGroceryLink }).pantryGroceryLink;
+      const pantryAttentionDelegate = (tx as unknown as { pantryAttention?: typeof tx.pantryAttention }).pantryAttention;
+      const staleLinkIds = new Set<string>();
       for (const item of pantry.items) {
         const recordAction = action("pantryItems", item.id);
         countRecord(recordAction);
@@ -2594,6 +2656,7 @@ export class DataManagementService {
         if (recordAction === "replace") {
           await tx.pantryItem.update({ where: { id }, data: itemData });
           await tx.pantryInventoryEvent.deleteMany({ where: { itemId: id } });
+          await tx.pantryDailyUsageState.deleteMany({ where: { itemId: id } });
           await tx.pantryAlias.deleteMany({ where: { itemId: id } });
           await tx.pantryLocationStock.deleteMany({ where: { itemId: id } });
           await tx.pantryPackage.deleteMany({ where: { itemId: id } });
@@ -2653,6 +2716,13 @@ export class DataManagementService {
           createdAt: new Date(rule.createdAt), updatedAt: new Date(rule.updatedAt),
         })) });
 
+        if (item.dailyUsageQuantity != null && item.dailyUsageUnit) {
+          const state = pantry.historyIncluded && item.dailyUsageState
+            ? item.dailyUsageState
+            : { configRevision: 1, baselineLocalDate: localDateKey(), lastAppliedLocalDate: localDateKey() };
+          await tx.pantryDailyUsageState.create({ data: { itemId: id, ...state } });
+        }
+
         if (pantry.historyIncluded) {
           for (const event of pantry.events.filter((candidate) => candidate.itemId === item.id)) {
             const sourceIdentity = event.sourceIdentity ?? `archive:${item.id}:event:${event.id}`;
@@ -2682,6 +2752,86 @@ export class DataManagementService {
               occurredAt: new Date(), importedAt: new Date(),
             } });
           }
+        }
+      }
+
+      for (const link of pantry.groceryLinks ?? []) {
+        if (!pantryLinkDelegate) break;
+        const pantryItemId = mapped("pantryItems", link.pantryItemId);
+        const groceryItemId = mapped("groceryItems", link.groceryItemId);
+        if (!pantryItemId) continue;
+        const linkId = input.mode === "replace" ? link.id : randomUUID();
+        idMap.pantryGroceryLinks[link.id] = linkId;
+        const stale = !groceryItemId;
+        if (stale) {
+          staleLinkIds.add(link.id);
+          counts.staleReferences.push({
+            kind: "grocery-link",
+            pantryItemId: link.pantryItemId,
+            groceryItemId: link.groceryItemId,
+            reason: "missing-grocery-item",
+          });
+          counts.unresolved += 1;
+        }
+        if (link.active && !stale) {
+          await pantryLinkDelegate.updateMany({
+            where: { pantryItemId, active: true },
+            data: { active: false, status: "unlinked", closedAt: new Date(), closeReason: "replaced" },
+          });
+        }
+        const existing = await pantryLinkDelegate.findUnique({ where: { operationIdentity: link.operationIdentity } });
+        if (existing) {
+          idMap.pantryGroceryLinks[link.id] = existing.id;
+          continue;
+        }
+        await pantryLinkDelegate.create({
+          data: {
+            id: linkId,
+            pantryItemId,
+            groceryItemId: groceryItemId ?? link.groceryItemId,
+            status: stale ? "unlinked" : link.status,
+            active: stale ? false : link.active,
+            operationIdentity: link.operationIdentity,
+            reviewIdentity: link.reviewIdentity,
+            closedAt: stale ? new Date() : link.closedAt ? new Date(link.closedAt) : null,
+            closeReason: stale ? "stale-grocery-reference" : link.closeReason,
+            createdAt: new Date(link.createdAt),
+            updatedAt: new Date(link.updatedAt),
+          },
+        });
+      }
+
+      if (pantryAttentionDelegate) {
+        for (const state of pantry.attention ?? []) {
+          const pantryItemId = mapped("pantryItems", state.pantryItemId);
+          if (!pantryItemId) continue;
+          const groceryLinkId = state.groceryLinkId ? idMap.pantryGroceryLinks[state.groceryLinkId] ?? null : null;
+          const staleLink = state.source === "grocery-link" && (!groceryLinkId || staleLinkIds.has(state.groceryLinkId ?? ""));
+          if (staleLink) counts.unresolved += 1;
+          const existing = await pantryAttentionDelegate.findUnique({ where: { operationIdentity: state.operationIdentity } });
+          if (existing) continue;
+          if (state.active && !staleLink) {
+            await pantryAttentionDelegate.updateMany({
+              where: { pantryItemId, active: true },
+              data: { active: false, closedAt: new Date(), closeReason: "replaced" },
+            });
+          }
+          await pantryAttentionDelegate.create({
+            data: {
+              id: input.mode === "replace" ? state.id : randomUUID(),
+              pantryItemId,
+              source: state.source,
+              expiresAt: state.expiresAt ? new Date(state.expiresAt) : null,
+              groceryLinkId,
+              operationIdentity: state.operationIdentity,
+              reviewIdentity: state.reviewIdentity,
+              active: state.active && !staleLink,
+              closedAt: staleLink ? new Date() : state.closedAt ? new Date(state.closedAt) : null,
+              closeReason: staleLink ? "stale-grocery-reference" : state.closeReason,
+              createdAt: new Date(state.createdAt),
+              updatedAt: new Date(state.updatedAt),
+            },
+          });
         }
       }
     }
@@ -2716,6 +2866,9 @@ export class DataManagementService {
     }
 
     await bootstrapDatabase();
+    const previousPantryQuantities = this.dependencies.pantryService
+      ? new Map((await this.dependencies.pantryService.list({ filter: "all", sort: "name", direction: "asc" })).map((item) => [item.id, item.usableQuantity]))
+      : null;
     const local = await this.loadLocalSnapshot();
     const planned = this.buildApplyAnalysis(parsed, local, input);
     const backup =
@@ -2736,6 +2889,7 @@ export class DataManagementService {
       unresolved: 0,
       assets: { imported: 0, skipped: 0, failed: 0 },
       preferencesRestored: false,
+      staleReferences: [],
     };
     let writtenPhotos = new Map<
       string,
@@ -2779,6 +2933,13 @@ export class DataManagementService {
         });
       });
 
+      if (this.dependencies.pantryService && previousPantryQuantities) {
+        const importedItems = await this.dependencies.pantryService.list({ filter: "all", sort: "name", direction: "asc" });
+        await Promise.all(importedItems
+          .filter((item) => previousPantryQuantities.has(item.id))
+          .map((item) => this.dependencies.pantryService?.reconcileRestock(item.id, previousPantryQuantities.get(item.id) ?? null)));
+      }
+
       await Promise.allSettled(
         [...new Set(acceptedPhotos.oldPaths)].map((path) =>
           this.dependencies.deletePhoto(path)
@@ -2788,6 +2949,7 @@ export class DataManagementService {
         "meal",
         "recipe",
         "groceryList",
+        "pantry",
         "prepList",
         "mealType",
         "preference",
@@ -2804,6 +2966,7 @@ export class DataManagementService {
           conflicts: planned.analysis.conflicts.length,
           assets: counts.assets,
           preferencesRestored: counts.preferencesRestored,
+          staleReferences: counts.staleReferences,
         },
         ...(backupPath ? { backupPath } : {}),
       };

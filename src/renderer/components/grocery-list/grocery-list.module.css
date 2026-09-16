@@ -719,6 +719,18 @@
   flex-shrink: 0;
 }
 
+.pantryLinkBadge {
+  flex-shrink: 0;
+  border: 1px solid var(--green-light);
+  border-radius: 6px;
+  background: var(--green-pale);
+  color: var(--green);
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 0.2rem 0.35rem;
+  white-space: nowrap;
+}
+
 .itemQtyInput {
   font-size: 0.75rem;
   width: 48px;

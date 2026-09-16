@@ -61,6 +61,8 @@ describe("statsRoutes", () => {
       empty: 0,
       expiringSoon: 0,
       expired: 0,
+      forecastAttention: 0,
+      attention: 0,
     });
     vi.mocked(pantryService.analysis).mockResolvedValue({
       period: "30",

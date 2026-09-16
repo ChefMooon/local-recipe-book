@@ -34,6 +34,10 @@ export const ApiPaths = {
   pantryItemPackages: (id: string) => `/api/pantry/${id}/packages`,
   pantryItemWarnings: (id: string) => `/api/pantry/${id}/warnings`,
   pantryItemEvents: (id: string) => `/api/pantry/${id}/events`,
+  pantryItemAttention: (id: string) => `/api/pantry/${id}/attention`,
+  pantryItemAttentionInspection: (id: string) => `/api/pantry/${id}/attention/inspection`,
+  pantryItemGroceryLink: (id: string) => `/api/pantry/${id}/grocery-link`,
+  pantryItemGroceryLinkLifecycle: (id: string) => `/api/pantry/${id}/grocery-link/lifecycle`,
 
   // Prep lists
   prepLists: "/api/prep-lists",

@@ -26,7 +26,7 @@ last_updated: 2026-09-15
   - Archive export/import and backward compatibility for items without daily-usage settings.
   - Tests for validation, conversions, forecast boundaries, warning status, no-mutation behavior, and renderer states.
 - **Out-of-Scope:**
-  - Automatically changing stock based on the forecast.
+  - Automatically changing stock based on forecast evaluation or list serialization. Startup daily-usage reconciliation is an explicit stock mutation path defined below.
   - Automatically inferring or silently changing the user's daily usage value.
   - Density-based or otherwise unsafe cross-dimension conversion.
   - Reserving stock for future recipes or changing grocery generation semantics unless a later decision explicitly adds that behavior.
@@ -47,6 +47,7 @@ last_updated: 2026-09-15
 - **Approved API/status semantics:** existing `ok`, `low`, `empty`, `expiring-soon`, and `expired` statuses remain unchanged. Forecast data is additive and includes state, reason, severity, attention flag, remaining quantity/days, and projected run-out date where available. Forecast attention is separate from existing summary counts and filters.
 - **Approved archive semantics:** absent daily-usage fields in older archives leave the configuration unset. Recognized daily-usage fields are validated strictly; malformed or internally incompatible values reject the Pantry payload before mutation. Unknown fields remain forward-compatible and are ignored through the existing archive parser.
 - **Approved Stats scope:** Stats remains historical-only for the first release. Configured forecasts appear in Pantry and Home, never as measured historical consumption or a configured-versus-historical comparison.
+- **Approved automatic depletion contract:** Items with configured daily usage establish a local-date baseline on first reconciliation after enablement or configuration change. Subsequent application launches consume one daily usage amount for each missed local calendar date, exactly once, through transactional inventory events. Automatic usage counts as historical consumption, consumes approximate and expired stock, clamps at zero, and fast-forwards reconciliation state after stock reaches zero to bound long-inactive catch-up. Matching full-history archives may preserve reconciliation state; state-only or mismatched imports establish a new baseline. Startup aborts if reconciliation fails.
 
 ---
 

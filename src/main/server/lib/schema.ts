@@ -329,6 +329,20 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS "PantryItem_stockMode_idx" ON "PantryItem"("stockMode")`,
   `CREATE INDEX IF NOT EXISTS "PantryItem_updatedAt_idx" ON "PantryItem"("updatedAt")`,
   `
+    CREATE TABLE IF NOT EXISTS "PantryDailyUsageState" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "itemId" TEXT NOT NULL UNIQUE,
+      "configRevision" INTEGER NOT NULL DEFAULT 1,
+      "baselineLocalDate" TEXT NOT NULL,
+      "lastAppliedLocalDate" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "PantryDailyUsageState_itemId_fkey"
+        FOREIGN KEY ("itemId") REFERENCES "PantryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS "PantryDailyUsageState_lastAppliedLocalDate_idx" ON "PantryDailyUsageState"("lastAppliedLocalDate")`,
+  `
     CREATE TABLE IF NOT EXISTS "PantryAlias" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "itemId" TEXT NOT NULL,
@@ -428,6 +442,46 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS "PantryInventoryEvent_itemId_occurredAt_idx" ON "PantryInventoryEvent"("itemId", "occurredAt")`,
   `CREATE INDEX IF NOT EXISTS "PantryInventoryEvent_locationStockId_occurredAt_idx" ON "PantryInventoryEvent"("locationStockId", "occurredAt")`,
   `CREATE INDEX IF NOT EXISTS "PantryInventoryEvent_type_occurredAt_idx" ON "PantryInventoryEvent"("type", "occurredAt")`,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryAttention" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "pantryItemId" TEXT NOT NULL,
+      "source" TEXT NOT NULL,
+      "expiresAt" DATETIME,
+      "groceryLinkId" TEXT,
+      "operationIdentity" TEXT NOT NULL UNIQUE,
+      "reviewIdentity" TEXT UNIQUE,
+      "active" INTEGER NOT NULL DEFAULT 1,
+      "closedAt" DATETIME,
+      "closeReason" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "PantryAttention_pantryItemId_fkey" FOREIGN KEY ("pantryItemId") REFERENCES "PantryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "PantryAttention_groceryLinkId_fkey" FOREIGN KEY ("groceryLinkId") REFERENCES "PantryGroceryLink"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS "PantryAttention_pantryItemId_createdAt_idx" ON "PantryAttention"("pantryItemId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "PantryAttention_groceryLinkId_idx" ON "PantryAttention"("groceryLinkId")`,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryGroceryLink" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "pantryItemId" TEXT NOT NULL,
+      "groceryItemId" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'active',
+      "active" INTEGER NOT NULL DEFAULT 1,
+      "operationIdentity" TEXT NOT NULL UNIQUE,
+      "reviewIdentity" TEXT UNIQUE,
+      "closedAt" DATETIME,
+      "closeReason" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "PantryGroceryLink_pantryItemId_fkey" FOREIGN KEY ("pantryItemId") REFERENCES "PantryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS "PantryGroceryLink_pantryItemId_createdAt_idx" ON "PantryGroceryLink"("pantryItemId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "PantryGroceryLink_groceryItemId_idx" ON "PantryGroceryLink"("groceryItemId")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "PantryAttention_one_active_per_item_idx" ON "PantryAttention"("pantryItemId") WHERE "active" = 1`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "PantryGroceryLink_one_active_per_item_idx" ON "PantryGroceryLink"("pantryItemId") WHERE "active" = 1`,
 ] as const;
 
 async function ensureMissingColumns(

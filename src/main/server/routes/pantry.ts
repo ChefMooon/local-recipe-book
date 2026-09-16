@@ -10,7 +10,14 @@ import {
   PantryWarningRuleInputSchema,
   UpdatePantryItemSchema,
 } from "@shared/schemas/pantry-schemas";
-import { pantryService } from "../services.js";
+import {
+  PantryAttentionClearSchema,
+  PantryAttentionMutationSchema,
+  PantryGroceryItemActionSchema,
+  PantryGroceryLinkCreateSchema,
+  PantryGroceryLinkLifecycleSchema,
+} from "@shared/schemas/pantry-attention-schemas";
+import { groceryService, pantryAttentionService, pantryService } from "../services.js";
 
 export const pantryRoutes = new Hono();
 
@@ -132,4 +139,69 @@ pantryRoutes.post("/pantry/:id/warnings", async (c) => {
 
 pantryRoutes.get("/pantry/:id/events", async (c) => {
   return c.json({ data: await pantryService.events(parseId(c)) });
+});
+
+pantryRoutes.get("/pantry/:id/attention", async (c) => {
+  return c.json({ data: await pantryAttentionService.getAttention(parseId(c)) });
+});
+
+pantryRoutes.get("/pantry/:id/attention/inspection", async (c) => {
+  const item = await pantryService.get(parseId(c));
+  if (!item) return c.json({ error: "Pantry item not found" }, 404);
+  return c.json({ data: item.attention });
+});
+
+pantryRoutes.put("/pantry/:id/attention", async (c) => {
+  try {
+    const data = await pantryAttentionService.setAttention(
+      parseId(c),
+      PantryAttentionMutationSchema.parse(await c.req.json())
+    );
+    return c.json({ data });
+  } catch (error) {
+    if (error instanceof z.ZodError) return c.json({ error: "Invalid Pantry attention payload", issues: error.flatten() }, 400);
+    return c.json({ error: error instanceof Error ? error.message : "Unable to persist Pantry attention" }, 400);
+  }
+});
+
+pantryRoutes.delete("/pantry/:id/attention", async (c) => {
+  try {
+    const data = await pantryAttentionService.clearAttention(
+      parseId(c),
+      PantryAttentionClearSchema.parse(await c.req.json())
+    );
+    return c.json({ data });
+  } catch (error) {
+    if (error instanceof z.ZodError) return c.json({ error: "Invalid Pantry attention payload", issues: error.flatten() }, 400);
+    return c.json({ error: error instanceof Error ? error.message : "Unable to clear Pantry attention" }, 400);
+  }
+});
+
+pantryRoutes.get("/pantry/:id/grocery-link", async (c) => {
+  return c.json({ data: await pantryAttentionService.getGroceryLink(parseId(c)) });
+});
+
+pantryRoutes.post("/pantry/:id/grocery-link", async (c) => {
+  try {
+    const body = await c.req.json();
+    const data = typeof body === "object" && body !== null && "groceryItemId" in body
+      ? await pantryAttentionService.createGroceryLink(parseId(c), PantryGroceryLinkCreateSchema.parse(body))
+      : await groceryService.addPantryItemToCurrentList(parseId(c), PantryGroceryItemActionSchema.parse(body));
+    return c.json({ data }, 201);
+  } catch (error) {
+    if (error instanceof z.ZodError) return c.json({ error: "Invalid Pantry grocery link payload", issues: error.flatten() }, 400);
+    return c.json({ error: error instanceof Error ? error.message : "Unable to persist Pantry grocery link" }, 400);
+  }
+});
+
+pantryRoutes.patch("/pantry/:id/grocery-link/lifecycle", async (c) => {
+  try {
+    const data = await pantryAttentionService.updateGroceryLinkLifecycle(
+      PantryGroceryLinkLifecycleSchema.parse(await c.req.json())
+    );
+    return c.json({ data });
+  } catch (error) {
+    if (error instanceof z.ZodError) return c.json({ error: "Invalid Pantry grocery link lifecycle payload", issues: error.flatten() }, 400);
+    return c.json({ error: error instanceof Error ? error.message : "Unable to update Pantry grocery link lifecycle" }, 400);
+  }
 });

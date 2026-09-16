@@ -5,6 +5,8 @@ import { prisma } from "../lib/prisma";
 import { bootstrapDatabase } from "../lib/bootstrap";
 import { publishCommittedChange } from "./change-event-bus";
 import { calculatePantryForecast } from "./pantry-forecast";
+import { PantryAttentionService } from "./pantry-attention-service";
+import { localDateKey } from "./pantry-daily-usage";
 
 const DEFAULT_LOCATION = "Unspecified";
 const DEFAULT_LOCATION_KEY = "unspecified";
@@ -36,6 +38,7 @@ async function findPantryItem(id: string) {
       locations: { include: { lots: true }, orderBy: { normalizedLocation: "asc" } },
       packages: { orderBy: { createdAt: "asc" } },
       warningRules: { orderBy: { createdAt: "asc" } },
+      dailyUsageState: true,
     },
   });
 }
@@ -96,7 +99,19 @@ function getStatus(item: NonNullable<PantryWithRelations>, now = new Date()): Pa
   return "ok";
 }
 
-function serializeItem(item: NonNullable<PantryWithRelations>, includeEvents = false): PantryItemPayload {
+async function serializeItem(item: NonNullable<PantryWithRelations>, includeEvents = false, attentionService: Pick<PantryAttentionService, "getAttentionView">): Promise<PantryItemPayload> {
+  const status = getStatus(item);
+  const forecast = calculatePantryForecast({
+    dailyUsageQuantity: item.dailyUsageQuantity,
+    dailyUsageUnit: item.dailyUsageUnit,
+    dailyUsageWarningDays: item.dailyUsageWarningDays,
+    locations: item.locations.map((location) => ({
+      quantity: location.quantity,
+      unit: location.unit,
+      approximate: location.approximate,
+      expired: location.lots.some((lot) => lot.expiresAt && lot.expiresAt.getTime() <= Date.now() && lot.quantity > 0),
+    })),
+  });
   return {
     id: item.id,
     name: item.name,
@@ -162,19 +177,10 @@ function serializeItem(item: NonNullable<PantryWithRelations>, includeEvents = f
           events: [],
         }
       : {}),
-    status: getStatus(item),
+    status,
     usableQuantity: usableQuantity(item),
-    forecast: calculatePantryForecast({
-      dailyUsageQuantity: item.dailyUsageQuantity,
-      dailyUsageUnit: item.dailyUsageUnit,
-      dailyUsageWarningDays: item.dailyUsageWarningDays,
-      locations: item.locations.map((location) => ({
-        quantity: location.quantity,
-        unit: location.unit,
-        approximate: location.approximate,
-        expired: location.lots.some((lot) => lot.expiresAt && lot.expiresAt.getTime() <= Date.now() && lot.quantity > 0),
-      })),
-    }),
+    forecast,
+    attention: await attentionService.getAttentionView(item.id, { status, forecast }),
   };
 }
 
@@ -198,6 +204,19 @@ function itemData(input: CreatePantryItemInput | UpdatePantryItemInput) {
 }
 
 export class PantryService {
+  constructor(private readonly attentionService: Pick<PantryAttentionService, "getAttentionView" | "reconcileRestock"> = new PantryAttentionService()) {}
+
+  private async getUsableQuantity(id: string) {
+    await bootstrapDatabase();
+    const item = await findPantryItem(id);
+    return item ? usableQuantity(item) : null;
+  }
+
+  async reconcileRestock(id: string, previousUsableQuantity: number | null) {
+    const currentUsableQuantity = await this.getUsableQuantity(id);
+    return this.attentionService.reconcileRestock(id, previousUsableQuantity, currentUsableQuantity);
+  }
+
   async migrateLegacyStaples() {
     await bootstrapDatabase();
     const preferenceDelegate = (prisma as unknown as {
@@ -253,6 +272,7 @@ export class PantryService {
         locations: { include: { lots: true }, orderBy: { normalizedLocation: "asc" } },
         packages: { orderBy: { createdAt: "asc" } },
         warningRules: { orderBy: { createdAt: "asc" } },
+        dailyUsageState: true,
       },
     });
     const search = input.search?.toLocaleLowerCase();
@@ -268,7 +288,17 @@ export class PantryService {
       if (query.filter === "track-quantity" && item.stockMode !== "track-quantity") return false;
       if (query.filter === "replenish-to-target" && item.stockMode !== "replenish-to-target") return false;
       if (query.filter === "recent-updates" && item.updatedAt.getTime() < Date.now() - 7 * 86_400_000) return false;
-      if (query.filter === "forecast-attention" && !serializeItem(item).forecast.attention) return false;
+      if (query.filter === "forecast-attention" && !calculatePantryForecast({
+        dailyUsageQuantity: item.dailyUsageQuantity,
+        dailyUsageUnit: item.dailyUsageUnit,
+        dailyUsageWarningDays: item.dailyUsageWarningDays,
+        locations: item.locations.map((location) => ({
+          quantity: location.quantity,
+          unit: location.unit,
+          approximate: location.approximate,
+          expired: location.lots.some((lot) => lot.expiresAt && lot.expiresAt.getTime() <= Date.now() && lot.quantity > 0),
+        })),
+      }).attention) return false;
       return true;
     });
     filtered.sort((left, right) => {
@@ -278,14 +308,14 @@ export class PantryService {
       if (query.sort === "status") return direction * getStatus(left).localeCompare(getStatus(right));
       return direction * (left.updatedAt.getTime() - right.updatedAt.getTime());
     });
-    return filtered.map((item) => serializeItem(item));
+    return Promise.all(filtered.map((item) => serializeItem(item, false, this.attentionService)));
   }
 
   async get(id: string, includeEvents = false) {
     await bootstrapDatabase();
     const item = await findPantryItem(id);
     if (!item) return null;
-    const payload = serializeItem(item, includeEvents);
+    const payload = await serializeItem(item, includeEvents, this.attentionService);
     if (includeEvents) {
       const events = await prisma.pantryInventoryEvent.findMany({ where: { itemId: id }, orderBy: { occurredAt: "desc" } });
       payload.events = events.map((event) => ({
@@ -313,6 +343,10 @@ export class PantryService {
       if (input.locations.length) await tx.pantryLocationStock.createMany({ data: input.locations.map((location) => ({ itemId: item.id, location: normalizeLocation(location.location).label, normalizedLocation: normalizeLocation(location.location).key, quantity: location.quantity ?? null, unit: normalizePantryUnit(location.unit), approximate: location.approximate })) });
       if (input.packages.length) await tx.pantryPackage.createMany({ data: input.packages.map((pack) => ({ ...pack, itemId: item.id, unit: normalizePantryUnit(pack.unit) ?? pack.unit })) });
       if (input.warningRules.length) await tx.pantryWarningRule.createMany({ data: input.warningRules.map((rule) => ({ ...rule, itemId: item.id, unit: normalizePantryUnit(rule.unit), message: rule.message ?? null })) });
+      if (item.dailyUsageQuantity != null && item.dailyUsageUnit) {
+        const today = localDateKey();
+        await tx.pantryDailyUsageState.create({ data: { itemId: item.id, baselineLocalDate: today, lastAppliedLocalDate: today } });
+      }
       return item;
     });
     await publishCommittedChange("pantry", "create", created.id);
@@ -321,10 +355,26 @@ export class PantryService {
 
   async update(id: string, input: UpdatePantryItemInput) {
     await bootstrapDatabase();
-    const existing = await prisma.pantryItem.findUnique({ where: { id } });
+    const existing = await findPantryItem(id);
     if (!existing) return null;
+    const previousUsableQuantity = usableQuantity(existing);
+    const nextDailyUsageQuantity = input.dailyUsageQuantity ?? null;
+    const nextDailyUsageUnit = normalizePantryUnit(input.dailyUsageUnit);
+    const dailyUsageChanged = existing.dailyUsageQuantity !== nextDailyUsageQuantity || normalizePantryUnit(existing.dailyUsageUnit) !== nextDailyUsageUnit;
     await prisma.$transaction(async (tx) => {
       await tx.pantryItem.update({ where: { id }, data: itemData(input) });
+      if (dailyUsageChanged) {
+        if (nextDailyUsageQuantity != null && nextDailyUsageUnit) {
+          const today = localDateKey();
+          await tx.pantryDailyUsageState.upsert({
+            where: { itemId: id },
+            update: { configRevision: (existing.dailyUsageState?.configRevision ?? 0) + 1, baselineLocalDate: today, lastAppliedLocalDate: today },
+            create: { itemId: id, configRevision: (existing.dailyUsageState?.configRevision ?? 0) + 1, baselineLocalDate: today, lastAppliedLocalDate: today },
+          });
+        } else {
+          await tx.pantryDailyUsageState.deleteMany({ where: { itemId: id } });
+        }
+      }
       if (input.locations) {
         for (const location of input.locations) {
           const normalizedLocation = normalizeLocation(location.location);
@@ -360,6 +410,7 @@ export class PantryService {
         await tx.pantryWarningRule.createMany({ data: input.warningRules.map((rule) => ({ ...rule, itemId: id, unit: normalizePantryUnit(rule.unit), message: rule.message ?? null })) });
       }
     });
+    await this.reconcileRestock(id, previousUsableQuantity);
     await publishCommittedChange("pantry", "update", id);
     return this.get(id);
   }
@@ -374,7 +425,12 @@ export class PantryService {
 
   async applyStockAction(id: string, input: PantryStockActionInput) {
     await bootstrapDatabase();
+    const previousUsableQuantity = await this.getUsableQuantity(id);
     await prisma.$transaction(async (tx) => {
+      if (input.sourceIdentity) {
+        const existingEvent = await tx.pantryInventoryEvent.findUnique({ where: { sourceIdentity: input.sourceIdentity } });
+        if (existingEvent) return;
+      }
       const item = await tx.pantryItem.findUnique({ where: { id } });
       if (!item) throw new Error("Pantry item not found");
       const location = normalizeLocation(input.location);
@@ -424,15 +480,17 @@ export class PantryService {
       if (input.type === "mark-empty") {
         await tx.pantryLot.updateMany({ where: { locationStockId: stock.id }, data: { quantity: 0 } });
       }
-      await tx.pantryInventoryEvent.create({ data: { itemId: id, locationStockId: stock.id, lotId: allocations.length === 1 ? allocations[0].lotId : null, type: input.type, quantityDelta: next - current, quantity: input.quantity ?? null, unit, approximate: input.approximate, sourceType: "manual", metadataJson: JSON.stringify({ action: input.type === "consume" ? "use-stock" : input.type, source: source.type, selectedLotId: source.type === "lot" ? source.lotId : null, allocations, note: input.note ?? null }), occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date() } });
+      await tx.pantryInventoryEvent.create({ data: { itemId: id, locationStockId: stock.id, lotId: allocations.length === 1 ? allocations[0].lotId : null, type: input.type, quantityDelta: next - current, quantity: input.quantity ?? null, unit, approximate: input.approximate, sourceType: "manual", sourceIdentity: input.sourceIdentity ?? null, metadataJson: JSON.stringify({ action: input.type === "consume" ? "use-stock" : input.type, source: source.type, selectedLotId: source.type === "lot" ? source.lotId : null, allocations, note: input.note ?? null }), occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date() } });
       return stock.id;
     });
+    await this.reconcileRestock(id, previousUsableQuantity);
     await publishCommittedChange("pantry", "update", id);
     return this.get(id);
   }
 
   async applyPackageStockAction(id: string, input: PantryPackageStockActionInput) {
     await bootstrapDatabase();
+    const previousUsableQuantity = await this.getUsableQuantity(id);
     await prisma.$transaction(async (tx) => {
       const item = await tx.pantryItem.findUnique({ where: { id } });
       if (!item) throw new Error("Pantry item not found");
@@ -491,12 +549,14 @@ export class PantryService {
         },
       });
     });
+    await this.reconcileRestock(id, previousUsableQuantity);
     await publishCommittedChange("pantry", "update", id);
     return this.get(id);
   }
 
   async addLot(id: string, input: { location: string; quantity: number; unit?: string | null; approximate?: boolean; bestBeforeAt?: string | null; expiresAt?: string | null }) {
     await bootstrapDatabase();
+    const previousUsableQuantity = await this.getUsableQuantity(id);
     const location = normalizeLocation(input.location);
     const lot = await prisma.$transaction(async (tx) => {
       const item = await tx.pantryItem.findUnique({ where: { id } });
@@ -508,12 +568,14 @@ export class PantryService {
       await tx.pantryLocationStock.update({ where: { id: stock.id }, data: { quantity: (stock.quantity ?? 0) + convertedQuantity, unit: stock.unit ?? lotUnit, approximate: stock.approximate || (input.approximate ?? false) } });
       return tx.pantryLot.create({ data: { locationStockId: stock.id, quantity: input.quantity, unit: lotUnit, approximate: input.approximate ?? false, bestBeforeAt: input.bestBeforeAt ? new Date(input.bestBeforeAt) : null, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } });
     });
+    await this.reconcileRestock(id, previousUsableQuantity);
     await publishCommittedChange("pantry", "update", id);
     return lot;
   }
 
   async removeLot(id: string, lotId: string) {
     await bootstrapDatabase();
+    const previousUsableQuantity = await this.getUsableQuantity(id);
     await prisma.$transaction(async (tx) => {
       const lot = await tx.pantryLot.findUnique({ where: { id: lotId }, include: { locationStock: true } });
       if (!lot || lot.locationStock.itemId !== id) throw new Error("Pantry lot not found");
@@ -525,11 +587,13 @@ export class PantryService {
       await tx.pantryInventoryEvent.create({ data: { itemId: id, locationStockId: lot.locationStockId, lotId, type: "discard", quantityDelta: -remaining, quantity: lot.quantity, unit: lot.unit, approximate: lot.approximate, sourceType: "manual", metadataJson: JSON.stringify({ action: "remove-lot" }), occurredAt: new Date() } });
       await tx.pantryLot.delete({ where: { id: lotId } });
     });
+    await this.reconcileRestock(id, previousUsableQuantity);
     await publishCommittedChange("pantry", "update", id);
   }
 
   async updateLot(id: string, lotId: string, input: { location: string; quantity: number; unit?: string | null; approximate?: boolean; bestBeforeAt?: string | null; expiresAt?: string | null }) {
     await bootstrapDatabase();
+    const previousUsableQuantity = await this.getUsableQuantity(id);
     const updatedLot = await prisma.$transaction(async (tx) => {
       const lot = await tx.pantryLot.findUnique({ where: { id: lotId }, include: { locationStock: true } });
       if (!lot || lot.locationStock.itemId !== id) throw new Error("Pantry lot not found");
@@ -554,6 +618,7 @@ export class PantryService {
       await tx.pantryInventoryEvent.create({ data: { itemId: id, locationStockId: nextStock.id, lotId, type: "correction", quantityDelta: newContribution - oldContribution, quantity: input.quantity, unit: lotUnit, approximate: input.approximate ?? false, sourceType: "manual", metadataJson: JSON.stringify({ action: "update-lot" }), occurredAt: new Date() } });
       return updated;
     });
+    await this.reconcileRestock(id, previousUsableQuantity);
     await publishCommittedChange("pantry", "update", id);
     return updatedLot;
   }
@@ -586,6 +651,7 @@ export class PantryService {
       expiringSoon: items.filter((item) => item.status === "expiring-soon").length,
       expired: items.filter((item) => item.status === "expired").length,
       forecastAttention: items.filter((item) => item.forecast.attention).length,
+      attention: items.filter((item) => item.attention.visible).length,
     };
   }
 

@@ -56,6 +56,18 @@ Pantry can surface low stock, empty stock, expiring lots, expired lots, and dail
 
 Use the Pantry editor to configure warning thresholds, expiration warning windows, replenishment targets, aliases, locations, package equivalences, and dated lots. Statuses are shown with text as well as color so attention states remain understandable when color is unavailable.
 
+### Attention and grocery links
+
+Pantry keeps inventory status and presentation attention separate. An item can remain `low` or `empty` while its stock or numeric forecast attention is muted. Expiring-soon, expired, and unavailable or data-quality forecast attention remains visible and cannot be hidden by these controls.
+
+- **Snooze 7 days** hides eligible stock and numeric forecast attention for exactly seven days, then restores it automatically.
+- **Until restocked** remains active until usable quantity increases by a positive amount. A reduction or unchanged quantity does not clear it; partial additions clear it even when the item remains below its warning threshold.
+- **Add to grocery list** creates or links one exact grocery item on the deterministic current list. If no ongoing list exists, the action creates an ongoing `Pantry Restock` list. Names are not used to match Pantry items to grocery items.
+
+An active linked grocery item represents shopping intent, not purchased stock. Checking, removing, deleting, skipping, or failing a grocery review restores eligible Pantry attention without changing quantity. Only the existing Pantry completion review applies purchased stock; after that review, the link is closed and attention is recalculated from the resulting inventory.
+
+The editor always exposes the raw status and provides **Restore attention** for a muted item. Attention state survives reloads and is removed or re-evaluated when the Pantry item, warning rules, stock mode, or stock data changes. Recreated records do not inherit state from a deleted record because associations use stable IDs.
+
 ## Data management
 
 Pantry data is included in `all` `.lrb` archives. State-only exports preserve current items, locations, lots, packages, aliases, thresholds, and daily-usage settings while omitting event history. Full-history exports also include inventory events.

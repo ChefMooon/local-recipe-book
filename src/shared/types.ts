@@ -356,6 +356,7 @@ export type PantryItemPayload = {
   status: "ok" | "low" | "empty" | "expiring-soon" | "expired";
   usableQuantity: number | null;
   forecast: PantryForecastPayload;
+  attention: import("./schemas/pantry-attention-schemas").PantryAttentionView;
 };
 
 export type PantrySummaryPayload = {
@@ -365,7 +366,14 @@ export type PantrySummaryPayload = {
   expiringSoon: number;
   expired: number;
   forecastAttention: number;
+  attention: number;
 };
+
+export type {
+  PantryAttentionPayload,
+  PantryAttentionView,
+  PantryGroceryLinkPayload,
+} from "./schemas/pantry-attention-schemas";
 
 // ── Recipes ──────────────────────────────────────────────────
 export type RecipeIngredientPayload = {

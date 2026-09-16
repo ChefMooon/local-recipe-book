@@ -40,6 +40,16 @@ const item = {
     projectedRunOutAt: null,
     estimate: { isEstimate: true as const, source: "location-quantity" as const, evaluatedAt: "2026-01-01T00:00:00.000Z" },
   },
+  attention: {
+    id: null,
+    source: null,
+    expiresAt: null,
+    suppressed: false,
+    visible: true,
+    stock: true,
+    forecast: false,
+    safety: false,
+  },
 };
 
 describe("PantryManagementModal", () => {
@@ -195,7 +205,7 @@ describe("PantryManagementModal", () => {
         lots: [{ id: "lot-1", quantity: 2, unit: "bottle", approximate: true, bestBeforeAt: "2026-09-20T23:59:59.000Z", expiresAt: "2026-09-25T23:59:59.000Z", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }],
       }],
     };
-    render(<PantryEditor item={itemWithLot} onStock={vi.fn()} onAddLot={vi.fn()} onRemoveLot={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    render(<PantryEditor item={itemWithLot} onStock={vi.fn()} onAddLot={vi.fn()} onRemoveLot={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} onAttention={vi.fn()} onClearAttention={vi.fn()} />);
 
     expect(screen.getAllByText("Dated lots").length).toBeGreaterThan(0);
     expect(screen.getByText("Best before Sep 20 · Expires Sep 25 · Approximate")).toBeTruthy();
@@ -208,7 +218,7 @@ describe("PantryManagementModal", () => {
       usableQuantity: 0,
       locations: [{ ...item.locations[0], quantity: 0, lots: [{ id: "lot-1", quantity: 2, unit: "bottle", approximate: false, bestBeforeAt: null, expiresAt: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] }],
     };
-    render(<PantryEditor item={itemWithLot} onStock={vi.fn()} onAddLot={vi.fn()} onRemoveLot={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    render(<PantryEditor item={itemWithLot} onStock={vi.fn()} onAddLot={vi.fn()} onRemoveLot={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} onAttention={vi.fn()} onClearAttention={vi.fn()} />);
 
     expect(within(screen.getAllByRole("region", { name: "Olive oil details" }).at(-1)! ).getByRole("button", { name: /Use stock/ })).not.toBeDisabled();
   });
@@ -218,6 +228,32 @@ describe("PantryManagementModal", () => {
     render(<PantryManagementModal item={item} onClose={vi.fn()} onSave={onSave} />);
 
     expect(screen.queryByText("Daily usage is not configured.")).toBeNull();
+  });
+
+  it("offers dismiss and restore controls without replacing raw low status", () => {
+    const onAttention = vi.fn();
+    const onClearAttention = vi.fn();
+    const mutedItem = { ...item, attention: { ...item.attention, id: "attention-1", source: "until-restocked" as const, suppressed: true, visible: false } };
+    const { rerender } = render(<PantryEditor item={item} onStock={vi.fn()} onAddLot={vi.fn()} onRemoveLot={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} onAttention={onAttention} onClearAttention={onClearAttention} />);
+    const region = () => within(screen.getAllByRole("region", { name: "Olive oil details" }).at(-1)!);
+
+    expect(region().getByText("Raw status: Low stock")).toBeTruthy();
+    fireEvent.click(region().getByRole("button", { name: /Snooze 7 days/ }));
+    expect(onAttention).toHaveBeenCalledWith("snooze");
+
+    rerender(<PantryEditor item={mutedItem} onStock={vi.fn()} onAddLot={vi.fn()} onRemoveLot={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} onAttention={onAttention} onClearAttention={onClearAttention} />);
+    fireEvent.click(region().getByRole("button", { name: /Restore attention/ }));
+    expect(onClearAttention).toHaveBeenCalledOnce();
+  });
+
+  it("keeps safety warning visibility and does not offer suppress controls for it", () => {
+    const expiringItem = { ...item, status: "expiring-soon" as const, attention: { ...item.attention, stock: false, forecast: false, safety: true, visible: true } };
+    render(<PantryEditor item={expiringItem} onStock={vi.fn()} onAddLot={vi.fn()} onRemoveLot={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} onAttention={vi.fn()} onClearAttention={vi.fn()} />);
+
+    const region = within(screen.getAllByRole("region", { name: "Olive oil details" }).at(-1)!);
+    expect(region.getByRole("alert")).toHaveTextContent("Safety warnings remain visible");
+    expect(region.queryByRole("button", { name: /Snooze 7 days/ })).toBeNull();
+    expect(region.queryByRole("button", { name: /Until restocked/ })).toBeNull();
   });
 });
 
