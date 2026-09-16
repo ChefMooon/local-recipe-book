@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-09-16
+
+### Added
+
+- Added a Pantry page for tracking pantry items, viewing pantry statistics, and monitoring daily usage.
+- Pantry items can now be linked to grocery-list items, with support for dismissing pantry warnings.
+
+### Changed
+
+- Grocery-list labels are now more consistent across the app.
+
 ## [1.2.7] - 2026-09-08
 
 ### Added
