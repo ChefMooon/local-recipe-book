@@ -143,32 +143,51 @@ describe("throttling UI regression coverage", () => {
     const heatmapRefetch = vi.fn();
     const upcomingRefetch = vi.fn();
 
-    useQueryMock
-      .mockReturnValueOnce(queryState({ data: [] }))
-      .mockReturnValueOnce(
-        queryState({
-          isError: true,
-          error: { status: 429 },
-          refetch: groceryRefetch,
-        })
-      )
-      .mockReturnValueOnce(
-        queryState({
-          data: { weeks: [], monthStarts: {} },
-          refetch: heatmapRefetch,
-        })
-      )
-      .mockReturnValueOnce(
-        queryState({
+    useQueryMock.mockImplementation(
+      ({ queryKey }: { queryKey: unknown[] }) => {
+        if (queryKey[0] === "grocery-list") {
+          return queryState({
+            isError: true,
+            error: { status: 429 },
+            refetch: groceryRefetch,
+          });
+        }
+
+        if (queryKey[1] === "heatmap") {
+          return queryState({
+            data: { weeks: [], monthStarts: {} },
+            refetch: heatmapRefetch,
+          });
+        }
+
+        if (queryKey[1] === "upcoming") {
+          return queryState({
+            data: {
+              days: 7,
+              from: "2026-05-25",
+              to: "2026-05-31",
+              meals: [],
+            },
+            refetch: upcomingRefetch,
+          });
+        }
+
+        if (queryKey[0] === "meal-types") {
+          return queryState({ data: [] });
+        }
+
+        return queryState({
           data: {
-            days: 7,
-            from: "2026-05-25",
-            to: "2026-05-31",
-            meals: [],
+            trackedItems: 0,
+            lowStock: 0,
+            empty: 0,
+            expiringSoon: 0,
+            expired: 0,
+            forecastAttention: 0,
           },
-          refetch: upcomingRefetch,
-        })
-      );
+        });
+      }
+    );
 
     render(
       <MemoryRouter>
