@@ -4,6 +4,8 @@ import { useParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { fetchJson } from "@/lib/api";
+import { ModalShell } from "@/components/ui/ModalShell";
+import { useToast } from "@/components/providers/toast-provider";
 import { isServerConfigReady } from "@/lib/config";
 import { useServerConfig } from "@/lib/use-server-config";
 import {
@@ -16,6 +18,94 @@ import {
 } from "@/lib/grocery";
 
 import styles from "./shop.module.css";
+
+type PantryReviewProposal = {
+  groceryItemId: string;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  checked: boolean;
+  match: {
+    status: "matched" | "ambiguous" | "suggestion" | "unmatched";
+    item: { id: string; name: string; stockMode: "always-available" | "track-quantity" | "replenish-to-target" } | null;
+    suggestions: Array<{ id: string; name: string; score: number }>;
+    explanation: string | null;
+  };
+  explanation: string | null;
+};
+
+function PantryReviewModal({
+  proposals,
+  onClose,
+  onApply,
+}: {
+  proposals: PantryReviewProposal[];
+  onClose: () => void;
+  onApply: (decisions: Array<Record<string, unknown>>, skippedNames: string[]) => Promise<void>;
+}) {
+  const [actions, setActions] = useState<Record<string, "match" | "create" | "skip">>(() =>
+    Object.fromEntries(proposals.map((proposal) => [
+      proposal.groceryItemId,
+      proposal.match.status === "matched" && proposal.match.item?.stockMode !== "always-available" ? "match" : "skip",
+    ]))
+  );
+  const [quantities, setQuantities] = useState<Record<string, string>>(() =>
+    Object.fromEntries(proposals.map((proposal) => [proposal.groceryItemId, proposal.quantity?.toString() ?? ""]))
+  );
+  const [units, setUnits] = useState<Record<string, string>>(() =>
+    Object.fromEntries(proposals.map((proposal) => [proposal.groceryItemId, proposal.unit ?? ""]))
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <ModalShell
+      ariaLabel="Review Pantry updates"
+      closeDisabled={saving}
+      footerLeft={<button className={styles.backBtn} disabled={saving} onClick={onClose} type="button">Skip review</button>}
+      footerRight={<button className={styles.completeBtn} disabled={saving} onClick={async () => {
+        setSaving(true);
+        setError(null);
+        try {
+          const skippedNames = proposals
+            .filter((proposal) => proposal.match.item?.stockMode === "always-available")
+            .map((proposal) => proposal.name);
+          await onApply(proposals.map((proposal) => {
+            const isAlwaysAvailable = proposal.match.item?.stockMode === "always-available";
+            return {
+              itemId: proposal.groceryItemId,
+              action: isAlwaysAvailable ? "skip" : actions[proposal.groceryItemId],
+              pantryItemId: isAlwaysAvailable ? undefined : proposal.match.item?.id ?? proposal.match.suggestions[0]?.id,
+              purchasedQuantity: isAlwaysAvailable ? null : quantities[proposal.groceryItemId] ? Number(quantities[proposal.groceryItemId]) : null,
+              unit: isAlwaysAvailable ? null : units[proposal.groceryItemId].trim() || null,
+            };
+          }), skippedNames);
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : "Unable to update Pantry.");
+        } finally {
+          setSaving(false);
+        }
+      }} type="button">{saving ? "Updating Pantry..." : "Update Pantry"}</button>}
+      onClose={onClose}
+      open
+      subtitle="Confirm what you brought home. Suggestions never update Pantry until you choose an action."
+      title="Review Pantry updates"
+    >
+      {error ? <div className={styles.reviewError} role="alert">{error}</div> : null}
+      <div className={styles.reviewList}>
+        {proposals.map((proposal) => (
+          <div className={styles.reviewRow} key={proposal.groceryItemId}>
+            <div><strong>{proposal.name}</strong><span>{proposal.explanation ?? proposal.match.explanation ?? "Purchased item"}</span></div>
+            <label>Purchased quantity<input disabled={proposal.match.item?.stockMode === "always-available"} inputMode="decimal" min="0" type="number" value={quantities[proposal.groceryItemId]} onChange={(event) => setQuantities((current) => ({ ...current, [proposal.groceryItemId]: event.target.value }))} /></label>
+            <label>Unit (optional)<input disabled={proposal.match.item?.stockMode === "always-available"} placeholder="e.g. kg, bottle" value={units[proposal.groceryItemId]} onChange={(event) => setUnits((current) => ({ ...current, [proposal.groceryItemId]: event.target.value }))} /></label>
+            <label>Action<select disabled={proposal.match.item?.stockMode === "always-available"} value={actions[proposal.groceryItemId]} onChange={(event) => setActions((current) => ({ ...current, [proposal.groceryItemId]: event.target.value as "match" | "create" | "skip" }))}><option value="match" disabled={!proposal.match.item && !proposal.match.suggestions.length}>Match existing</option><option value="create">Create Pantry item</option><option value="skip">Skip</option></select></label>
+            {proposal.match.item?.stockMode === "always-available" ? <span className={styles.reviewWarning} role="status">Always available. This item will be skipped and will not change Pantry stock.</span> : null}
+          </div>
+        ))}
+      </div>
+    </ModalShell>
+  );
+}
 
 function GroceryShopContent({
   groups,
@@ -136,7 +226,10 @@ export default function GroceryShopPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [isMarkingAllComplete, setIsMarkingAllComplete] = useState(false);
+  const [reviewProposals, setReviewProposals] = useState<PantryReviewProposal[] | null>(null);
+  const [autoReviewPantry, setAutoReviewPantry] = useState(true);
 
   const listQuery = useQuery({
     queryKey: ["grocery-list", id],
@@ -148,6 +241,14 @@ export default function GroceryShopPage() {
   });
 
   const list = listQuery.data;
+  useQuery({
+    queryKey: ["preferences"],
+    enabled: apiReady,
+    queryFn: () => fetchJson<{ data: { autoReviewPantry?: boolean } }>("/api/preferences").then((response) => {
+      setAutoReviewPantry(response.data.autoReviewPantry !== false);
+      return response.data;
+    }),
+  });
   const groups = useMemo(
     () => groupByCategory(list?.items ?? []),
     [list?.items]
@@ -247,6 +348,13 @@ export default function GroceryShopPage() {
     );
 
     if (uncheckedItems.length === 0) {
+      if (autoReviewPantry) {
+        const review = await fetchJson<{ data: PantryReviewProposal[] }>(`/api/grocery-lists/${id}/pantry-review`);
+        if (review.data.length) {
+          setReviewProposals(review.data);
+          return;
+        }
+      }
       navigate("/grocery-list");
       return;
     }
@@ -278,6 +386,13 @@ export default function GroceryShopPage() {
             ? updateGroceryListInCollection(current, list.id, applyCompleteAll)
             : current
       );
+      if (autoReviewPantry) {
+        const review = await fetchJson<{ data: PantryReviewProposal[] }>(`/api/grocery-lists/${id}/pantry-review`);
+        if (review.data.length) {
+          setReviewProposals(review.data);
+          return;
+        }
+      }
       navigate("/grocery-list");
     } catch (error) {
       queryClient.setQueryData(["grocery-list", id], previousList);
@@ -293,15 +408,41 @@ export default function GroceryShopPage() {
   }
 
   return (
-    <GroceryShopContent
-      done={done}
-      groups={groups}
-      isMarkingAllComplete={isMarkingAllComplete}
-      list={list}
-      navigate={navigate}
-      markAllComplete={markAllComplete}
-      pct={pct}
-      toggleItem={toggleItem}
-    />
+    <>
+      <GroceryShopContent
+        done={done}
+        groups={groups}
+        isMarkingAllComplete={isMarkingAllComplete}
+        list={list}
+        navigate={navigate}
+        markAllComplete={markAllComplete}
+        pct={pct}
+        toggleItem={toggleItem}
+      />
+      {reviewProposals ? (
+        <PantryReviewModal
+          onApply={async (decisions, skippedNames) => {
+            await fetchJson(`/api/grocery-lists/${id}/pantry-review`, {
+              method: "POST",
+              body: JSON.stringify({ decisions }),
+            });
+            if (skippedNames.length) {
+              toast({
+                title: "Pantry update completed",
+                description: `${skippedNames.join(", ")} ${skippedNames.length === 1 ? "was" : "were"} skipped because ${skippedNames.length === 1 ? "it is" : "they are"} always available.`,
+              });
+            }
+            setReviewProposals(null);
+            await queryClient.invalidateQueries({ queryKey: ["pantry"] });
+            navigate("/grocery-list");
+          }}
+          onClose={() => {
+            setReviewProposals(null);
+            navigate("/grocery-list");
+          }}
+          proposals={reviewProposals}
+        />
+      ) : null}
+    </>
   );
 }

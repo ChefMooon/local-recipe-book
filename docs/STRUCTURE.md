@@ -8,6 +8,7 @@
 | Developer workflows and commands      | `developer-guide.md`                                       | Setup, run, test, build, and feature implementation workflow                                   |
 | System architecture and runtime model | `architecture.md`                                          | Process boundaries, data flow, auth, and runtime modes                                         |
 | Data management archives              | `data-management.md`                                       | Archive format, scopes, validation, restore, security limits, and fixtures                     |
+| Pantry inventory                      | `pantry.md`                                                | Pantry workflows, stock modes, grocery integration, forecasts, migration, and data boundaries  |
 | App configuration and settings        | `local-recipe-book-config.md`                              | Environment variables, app settings, and preference contracts                                  |
 | LAN and browser access                | `lan-browser-access.md`                                    | Trusted-device LAN/browser access, token lifecycle, and operations                             |
 | Electron IPC contracts                | `ipc-channels.md`                                          | Canonical request-response and push channel reference                                          |

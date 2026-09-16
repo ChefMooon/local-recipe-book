@@ -36,6 +36,7 @@ import {
   publishCommittedChange,
   reserveCommittedChange,
 } from "./change-event-bus";
+import { calculatePantryRequirement } from "./pantry-calculation";
 import {
   CreateRecipeInputSchema,
   UpdateRecipeInputSchema,
@@ -2113,20 +2114,17 @@ export class RecipeService {
       where: { id: "default" },
       select: { pantryStaples: true },
     });
-
-    const stapleSet = new Set<string>();
+    const legacyPantryStaples = new Set<string>();
     if (pantryStaples?.pantryStaples) {
       try {
         const parsed = JSON.parse(pantryStaples.pantryStaples) as unknown;
         if (Array.isArray(parsed)) {
           for (const item of parsed) {
-            if (typeof item === "string") {
-              stapleSet.add(item.trim().toLowerCase());
-            }
+            if (typeof item === "string") legacyPantryStaples.add(item.trim().toLowerCase());
           }
         }
       } catch {
-        // Ignore malformed pantry staples.
+        // Preserve the existing malformed-value behavior.
       }
     }
 
@@ -2137,7 +2135,7 @@ export class RecipeService {
     const deduped = new Map<string, RolledUpIngredient>();
     for (const ingredient of rolled) {
       const key = `${ingredient.name.trim().toLowerCase()}::${ingredient.unit ?? ""}`;
-      if (stapleSet.has(ingredient.name.trim().toLowerCase())) {
+      if (legacyPantryStaples.has(ingredient.name.trim().toLowerCase())) {
         continue;
       }
 
@@ -2157,6 +2155,27 @@ export class RecipeService {
     }
 
     for (const ingredient of deduped.values()) {
+      const pantry = await calculatePantryRequirement(
+        ingredient.name,
+        ingredient.quantity,
+        ingredient.unit
+      );
+      if (pantry.quantity === null) {
+        continue;
+      }
+      if (pantry.quantity === 0) {
+        continue;
+      }
+
+      const pantryNotes = [
+        ingredient.notes,
+        pantry.explanation,
+        pantry.packageSuggestion
+          ? `Suggested packages: ${pantry.packageSuggestion.count} x ${pantry.packageSuggestion.label}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
       const existing = await prisma.groceryItem.findFirst({
         where: {
           groceryListId,
@@ -2173,7 +2192,7 @@ export class RecipeService {
             qty: lineToStringQuantity(ingredient.quantity),
             unit: ingredient.unit,
             category: "Other",
-            notes: ingredient.notes,
+            notes: pantryNotes || null,
             checked: false,
           },
         });
@@ -2190,7 +2209,7 @@ export class RecipeService {
         where: { id: existing.id },
         data: {
           qty: lineToStringQuantity(nextQty),
-          notes: existing.notes ?? ingredient.notes,
+          notes: existing.notes ?? pantryNotes ?? null,
         },
       });
     }

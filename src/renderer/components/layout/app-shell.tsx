@@ -23,8 +23,8 @@ type MealPlanLinkProps = {
 };
 
 function MealPlanLink({ className, children }: MealPlanLinkProps) {
-  const preloadTimer = useRef<number | undefined>();
-  const touchPointerAt = useRef<number | undefined>();
+  const preloadTimer = useRef<number | undefined>(undefined);
+  const touchPointerAt = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     return () => {
@@ -87,6 +87,7 @@ const navigationItems = [
   { label: "Home", href: "/" },
   { label: "Meal Plan", href: "/meal-plan" },
   { label: "Recipes", href: "/recipes" },
+  { label: "Pantry", href: "/pantry" },
   { label: "Grocery Lists", href: "/grocery-list" },
   { label: "Prep Lists", href: "/prep-lists" },
   { label: "Stats", href: "/stats" },

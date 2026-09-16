@@ -122,4 +122,32 @@ describe("data-management archive schemas", () => {
       "Missing payload domain: recipes"
     );
   });
+
+  it("accepts older Pantry archives without daily usage fields but rejects malformed recognized fields", () => {
+    const item = {
+      id: "pantry-1",
+      name: "Milk",
+      normalizedName: "milk",
+      category: "Dairy",
+      stockMode: "track-quantity",
+      warningThreshold: null,
+      warningUnit: null,
+      expirationWarningDays: null,
+      replenishmentTarget: null,
+      replenishmentUnit: null,
+      replenishmentQuantity: null,
+      notes: null,
+      createdAt: "2026-08-19T12:00:00.000Z",
+      updatedAt: "2026-08-19T12:00:00.000Z",
+      aliases: [],
+      locations: [],
+      packages: [],
+      warningRules: [],
+    };
+    const older = DataArchivePayloadSchema.safeParse({ domain: "pantry", version: 1, historyIncluded: false, items: [item], events: [] });
+    expect(older.success).toBe(true);
+    if (older.success && older.data.domain === "pantry") expect(older.data.items[0]).toMatchObject({ dailyUsageQuantity: null, dailyUsageUnit: null, dailyUsageWarningDays: null });
+    expect(DataArchivePayloadSchema.safeParse({ domain: "pantry", version: 1, historyIncluded: false, items: [{ ...item, dailyUsageQuantity: "one" }], events: [] }).success).toBe(false);
+    expect(DataArchivePayloadSchema.safeParse({ domain: "pantry", version: 1, historyIncluded: false, items: [{ ...item, dailyUsageQuantity: 1 }], events: [] }).success).toBe(false);
+  });
 });

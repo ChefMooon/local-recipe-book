@@ -61,6 +61,32 @@ export {
   type RecipeCanonicalUnit,
   type RecipeManualEntryUnit,
 } from "./recipe-units";
+export {
+  CreatePantryItemSchema,
+  UpdatePantryItemSchema,
+  PantryStockActionSchema,
+  PantryQuerySchema,
+  PantryAliasInputSchema,
+  PantryLocationInputSchema,
+  PantryLotInputSchema,
+  PantryPackageInputSchema,
+  PantryWarningRuleInputSchema,
+  normalizePantryIdentity,
+  normalizePantryUnit,
+  pantryUnitDimension,
+  PANTRY_EVENT_TYPES,
+  PANTRY_STOCK_MODES,
+  PANTRY_WARNING_SEVERITIES,
+} from "./schemas/pantry-schemas";
+export type {
+  CreatePantryItemInput,
+  UpdatePantryItemInput,
+  PantryStockActionInput,
+  PantryQueryInput,
+  PantryStockMode,
+  PantryEventType,
+  PantryUnit,
+} from "./schemas/pantry-schemas";
 // Schemas — Chat
 // Schemas — Recipe
 export {
@@ -109,4 +135,13 @@ export type {
   PrepListPayload,
   PrepListSortMode,
   PrepListSourceMode,
+  PantryAliasPayload,
+  PantryInventoryEventPayload,
+  PantryItemPayload,
+  PantryLocationPayload,
+  PantryLotPayload,
+  PantryPackagePayload,
+  PantrySummaryPayload,
+  PantryWarningRulePayload,
+  PantryForecastPayload,
 } from "./types";

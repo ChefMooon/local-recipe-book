@@ -27,9 +27,9 @@ type DietaryProfileSettingsProps = {
 	onPlanningNotesChange: (value: string) => void;
 	onImmediateArrayToggle: (field: ArrayPreferenceField, value: string) => void;
 	onCuisineToggle: (group: "favoriteCuisines" | "avoidCuisines", value: string) => void;
-	onChipAdd: (field: "avoidIngredients" | "pantryStaples", values: string[]) => void;
-	onChipRemove: (field: "avoidIngredients" | "pantryStaples", value: string) => void;
-	onChipReorder: (field: "avoidIngredients" | "pantryStaples", values: string[]) => void;
+	onChipAdd: (field: "avoidIngredients", values: string[]) => void;
+	onChipRemove: (field: "avoidIngredients", value: string) => void;
+	onChipReorder: (field: "avoidIngredients", values: string[]) => void;
 	onImmediateField: <K extends keyof SettingsPreferences>(field: K, value: SettingsPreferences[K]) => void;
 };
 
@@ -85,7 +85,6 @@ export function DietaryProfileSettings({
 				<div className={styles.card}>
 					<div className={styles.chipColumns}>
 						<ChipList description="Allergies or hard avoidances. Drag to reprioritize." items={preferences.avoidIngredients} onAdd={(values) => onChipAdd("avoidIngredients", values)} onRemove={(value) => onChipRemove("avoidIngredients", value)} onReorder={(values) => onChipReorder("avoidIngredients", values)} placeholder="e.g. peanuts, shellfish" title="Avoid ingredients" />
-						<ChipList description="Always in stock - skip from grocery lists. Drag to reorder." items={preferences.pantryStaples} onAdd={(values) => onChipAdd("pantryStaples", values)} onRemove={(value) => onChipRemove("pantryStaples", value)} onReorder={(values) => onChipReorder("pantryStaples", values)} placeholder="e.g. olive oil, garlic" title="Pantry staples" />
 					</div>
 				</div>
 				<div className={styles.card}>

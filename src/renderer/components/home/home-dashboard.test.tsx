@@ -160,6 +160,10 @@ describe("HomeDashboard upcoming meals", () => {
     };
 
     useQueryMock.mockImplementation(({ queryKey }: { queryKey: string[] }) => {
+      if (queryKey[0] === "pantry") {
+        return queryState({ trackedItems: 0, lowStock: 0, empty: 0, expiringSoon: 0, expired: 0 });
+      }
+
       if (queryKey[1] === "grocery-list") {
         return queryState(null);
       }

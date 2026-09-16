@@ -127,7 +127,6 @@ const SETTINGS_SEARCH_ITEMS = [
   ["favorite-cuisines", "Favorite cuisines", "Cuisines your household enjoys", ["cuisine", "favorites"]],
   ["avoid-cuisines", "Avoid cuisines", "Cuisines your household avoids", ["cuisine", "avoid"]],
   ["avoid-ingredients", "Avoid ingredients", "Allergies or hard avoidances", ["allergy", "ingredients"]],
-  ["pantry-staples", "Pantry staples", "Ingredients kept in stock", ["pantry", "ingredients"]],
   ["planning-notes", "Planning notes", "Context used when generating plans", ["notes", "AI", "planning"]],
   ["nutrition-tags", "Nutrition focus", "Nutrition goals and priorities", ["nutrition", "health"]],
   ["skill-level", "Cooking skill level", "Preferred cooking experience", ["skill", "experience"]],
@@ -703,7 +702,7 @@ export default function SettingsPage() {
   };
 
   const handleChipAdd = async (
-    field: "avoidIngredients" | "pantryStaples",
+    field: "avoidIngredients",
     values: string[]
   ) => {
     if (!preferences) {
@@ -723,7 +722,7 @@ export default function SettingsPage() {
   };
 
   const handleChipRemove = async (
-    field: "avoidIngredients" | "pantryStaples",
+    field: "avoidIngredients",
     value: string
   ) => {
     if (!preferences) {
@@ -736,7 +735,7 @@ export default function SettingsPage() {
   };
 
   const handleChipReorder = async (
-    field: "avoidIngredients" | "pantryStaples",
+    field: "avoidIngredients",
     values: string[]
   ) => {
     await commitPatch({ [field]: values } as Partial<SettingsPreferences>);
@@ -1252,7 +1251,7 @@ export default function SettingsPage() {
             id="panel-dietary-profile"
             active={activeTab === "dietary-profile"}
             ariaLabelledBy="settings-category-dietary-profile"
-            description="Set your household, dietary needs, cuisines, pantry defaults, and nutrition goals."
+            description="Set your household, dietary needs, cuisines, and nutrition goals."
             householdSizeDraft={householdSizeDraft}
             planningNotesDraft={planningNotesDraft}
             preferences={preferences}

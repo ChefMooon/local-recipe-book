@@ -190,6 +190,7 @@ model UserPreference {
   budgetRange            String   @default("moderate")
   autoGenerateGrocery    Boolean  @default(true)
   consolidateIngredients Boolean  @default(true)
+  autoReviewPantry       Boolean  @default(true)
   defaultPlanLength      String   @default("7")
   groceryGrouping        String   @default("category")
   defaultRecipeView      String   @default("basic")
@@ -200,6 +201,138 @@ model UserPreference {
 model SyncState {
   key   String @id
   value String
+}
+
+model PantryItem {
+  id                    String                 @id @default(cuid())
+  name                  String
+  normalizedName        String                 @unique
+  category              String                 @default("Other")
+  stockMode             String                 @default("always-available")
+  warningThreshold      Float?
+  warningUnit           String?
+  expirationWarningDays Int?
+  replenishmentTarget   Float?
+  replenishmentUnit     String?
+  replenishmentQuantity Float?
+  dailyUsageQuantity    Float?
+  dailyUsageUnit        String?
+  dailyUsageWarningDays Int?
+  notes                 String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  aliases               PantryAlias[]
+  locations             PantryLocationStock[]
+  packages              PantryPackage[]
+  warningRules          PantryWarningRule[]
+  events                PantryInventoryEvent[]
+
+  @@index([category])
+  @@index([stockMode])
+  @@index([updatedAt])
+}
+
+model PantryAlias {
+  id            String     @id @default(cuid())
+  itemId        String
+  label         String
+  normalizedAlias String
+  createdAt     DateTime   @default(now())
+  item          PantryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, normalizedAlias])
+  @@index([normalizedAlias])
+}
+
+model PantryLocationStock {
+  id          String                 @id @default(cuid())
+  itemId      String
+  location    String                 @default("Unspecified")
+  normalizedLocation String           @default("unspecified")
+  quantity    Float?
+  unit        String?
+  approximate Boolean                @default(false)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  item        PantryItem             @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  lots        PantryLot[]
+  events      PantryInventoryEvent[]
+
+  @@unique([itemId, normalizedLocation])
+  @@index([normalizedLocation])
+  @@index([updatedAt])
+}
+
+model PantryLot {
+  id              String               @id @default(cuid())
+  locationStockId String
+  quantity        Float
+  unit            String?
+  approximate     Boolean              @default(false)
+  bestBeforeAt    DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  locationStock   PantryLocationStock  @relation(fields: [locationStockId], references: [id], onDelete: Cascade)
+  events          PantryInventoryEvent[]
+
+  @@index([locationStockId, expiresAt])
+}
+
+model PantryPackage {
+  id               String     @id @default(cuid())
+  itemId           String
+  label            String
+  quantity         Float
+  unit             String
+  dimension        String
+  confirmed        Boolean    @default(false)
+  enabled          Boolean    @default(true)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  item             PantryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, enabled])
+}
+
+model PantryWarningRule {
+  id          String     @id @default(cuid())
+  itemId      String
+  threshold   Float
+  unit        String?
+  severity    String     @default("warning")
+  message     String?
+  enabled     Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  item        PantryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, enabled])
+}
+
+model PantryInventoryEvent {
+  id              String                @id @default(cuid())
+  itemId          String
+  locationStockId String?
+  lotId           String?
+  type            String
+  quantityDelta   Float?
+  quantity        Float?
+  unit            String?
+  approximate     Boolean               @default(false)
+  sourceType      String?
+  sourceId        String?
+  sourceIdentity  String?               @unique
+  metadataJson    String                @default("{}")
+  occurredAt      DateTime              @default(now())
+  importedAt      DateTime?
+  item            PantryItem            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  locationStock   PantryLocationStock?  @relation(fields: [locationStockId], references: [id], onDelete: SetNull)
+  lot             PantryLot?            @relation(fields: [lotId], references: [id], onDelete: SetNull)
+
+  @@index([itemId, occurredAt])
+  @@index([locationStockId, occurredAt])
+  @@index([type, occurredAt])
 }
 
 model Recipe {

@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { RouteErrorState } from "@/components/ui/route-error-state";
@@ -13,15 +13,16 @@ const StatsDashboard = lazy(async () => {
 });
 
 export default function StatsPage() {
+  const [pantryPeriod, setPantryPeriod] = useState<"30" | "90" | "365" | "all">("30");
   const config = useServerConfig();
   const apiReady = isServerConfigReady(config);
   const statsQuery = useQuery({
-    queryKey: ["stats"],
+    queryKey: ["stats", pantryPeriod],
     enabled: apiReady,
     retry: (failureCount, error) =>
       isRateLimitedApiError(error) ? failureCount < 1 : failureCount < 2,
     queryFn: () =>
-      fetchJson<{ data: StatsPayload }>("/api/stats").then(
+      fetchJson<{ data: StatsPayload }>(`/api/stats?pantryPeriod=${pantryPeriod}`).then(
         (response) => response.data
       ),
   });
@@ -62,7 +63,7 @@ export default function StatsPage() {
     <Suspense
       fallback={<p className="text-sm text-text-muted">Loading charts...</p>}
     >
-      <StatsDashboard stats={statsQuery.data} />
+      <StatsDashboard pantryPeriod={pantryPeriod} onPantryPeriodChange={setPantryPeriod} stats={statsQuery.data} />
     </Suspense>
   );
 }

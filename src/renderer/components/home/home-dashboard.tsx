@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, CalendarDots, Fire, ShoppingCart } from "@phosphor-icons/react";
+import { ArrowRight, CalendarDots, Fire, ShoppingCart, Warehouse } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -56,6 +56,15 @@ type UpcomingMealsPayload = {
   from: string;
   to: string;
   meals: UpcomingMealPayload[];
+};
+
+type PantrySummaryPayload = {
+  trackedItems: number;
+  lowStock: number;
+  empty: number;
+  expiringSoon: number;
+  expired: number;
+  forecastAttention: number;
 };
 
 type UpcomingMealTypeGroup = {
@@ -278,6 +287,18 @@ export function HomeDashboard() {
       ).then((response) => response.data),
   });
 
+  const pantrySummaryQuery = useQuery({
+    queryKey: ["pantry", "summary"],
+    enabled: apiReady,
+    refetchInterval: LIST_REFETCH_INTERVAL_MS,
+    retry: (failureCount, error) =>
+      isRateLimitedApiError(error) ? failureCount < 1 : failureCount < 2,
+    queryFn: () =>
+      fetchJson<{ data: PantrySummaryPayload }>("/api/pantry/summary").then(
+        (response) => response.data
+      ),
+  });
+
   const greetingDate = useMemo(
     () =>
       new Intl.DateTimeFormat("en-US", {
@@ -372,7 +393,8 @@ export function HomeDashboard() {
   const visibleOverviewCount =
     Number(settings.showMealActivity) + Number(settings.showGroceryList);
   const hasOverviewContent =
-    settings.showUpcomingMeals || visibleOverviewCount > 0;
+    settings.showUpcomingMeals ||
+    visibleOverviewCount > 0;
   const homeQueries = [
     groceryListQuery,
     heatmapQuery,
@@ -710,6 +732,19 @@ export function HomeDashboard() {
                           {groceryList?.completionPercentage ?? 0}% complete
                         </div>
                       </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {pantrySummaryQuery.data ? (
+                  <div className={styles.card}>
+                    <div className={styles.cardHeader}>
+                      <div className={styles.cardTitle}><Warehouse aria-hidden="true" size={20} /><span>Pantry attention</span></div>
+                      <Button asChild className={styles.cardActionButton} size="sm" variant="outline"><Link to={pantrySummaryQuery.data.forecastAttention ? "/pantry?filter=forecast-attention" : pantrySummaryQuery.data.lowStock ? "/pantry?filter=low-stock" : "/pantry"}><span>Open Pantry</span><ArrowRight aria-hidden="true" size={16} /></Link></Button>
+                    </div>
+                    <div className={styles.grocerySummary}>
+                      <div><div className={styles.groceryListName}>{pantrySummaryQuery.data.lowStock + pantrySummaryQuery.data.empty + pantrySummaryQuery.data.expiringSoon + pantrySummaryQuery.data.expired + pantrySummaryQuery.data.forecastAttention} items need attention</div><div className={styles.groceryMeta}>{pantrySummaryQuery.data.trackedItems} tracked items</div></div>
+                      <div className={styles.groceryMeta}>Low {pantrySummaryQuery.data.lowStock} · Empty {pantrySummaryQuery.data.empty} · Expiring {pantrySummaryQuery.data.expiringSoon} · Expired {pantrySummaryQuery.data.expired} · Forecast {pantrySummaryQuery.data.forecastAttention}</div>
                     </div>
                   </div>
                 ) : null}

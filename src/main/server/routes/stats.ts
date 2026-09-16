@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { mealService } from "../services.js";
+import { mealService, pantryService } from "../services.js";
 import { endOfDay, getUpcomingDateRange, startOfWeek } from "../lib/date.js";
 
 function getCurrentWeekRange() {
@@ -16,6 +16,8 @@ function getCurrentWeekRange() {
 export const statsRoutes = new Hono();
 
 statsRoutes.get("/stats", async (c) => {
+  const periodQuery = c.req.query("pantryPeriod");
+  const pantryPeriod = periodQuery === "90" || periodQuery === "365" || periodQuery === "all" ? periodQuery : "30";
   const [
     heatmap,
     mealTypeBreakdown,
@@ -25,6 +27,8 @@ statsRoutes.get("/stats", async (c) => {
     planningWindow,
     topMeals,
     topIngredients,
+    pantrySummary,
+    pantryAnalysis,
   ] = await Promise.all([
     mealService.getHeatmap(52),
     mealService.getMealTypeBreakdown(),
@@ -34,6 +38,8 @@ statsRoutes.get("/stats", async (c) => {
     mealService.getPlanningWindowStats(30),
     mealService.getTopMeals(10),
     mealService.getTopIngredients(15),
+    pantryService.summary(),
+    pantryService.analysis(pantryPeriod),
   ]);
 
   return c.json({
@@ -46,6 +52,7 @@ statsRoutes.get("/stats", async (c) => {
       planningWindow,
       topMeals,
       topIngredients,
+      pantry: { summary: pantrySummary, analysis: pantryAnalysis },
     },
   });
 });

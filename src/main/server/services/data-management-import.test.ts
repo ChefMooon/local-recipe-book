@@ -98,6 +98,8 @@ function emptyPayload(domain: DataArchivePayload["domain"]): DataArchivePayload 
       return { domain, version: DATA_ARCHIVE_DOMAIN_VERSION, lists: [] };
     case "preferences":
       return { domain, version: DATA_ARCHIVE_DOMAIN_VERSION, preferences: [] };
+    case "pantry":
+      return { domain, version: DATA_ARCHIVE_DOMAIN_VERSION, historyIncluded: false, items: [], events: [] };
   }
 }
 

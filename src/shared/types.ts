@@ -21,6 +21,7 @@ export type PreferencesPayload = {
   budgetRange: string;
   autoGenerateGrocery: boolean;
   consolidateIngredients: boolean;
+  autoReviewPantry: boolean;
   defaultPlanLength: string;
   groceryGrouping: string;
   defaultRecipeView: string;
@@ -248,6 +249,122 @@ export type RecipeMadeHistoryPayload = {
   madeCount: number;
   lastMadeAt: string | null;
   entries: RecipeMadeEntryPayload[];
+};
+
+// -- Pantry --------------------------------------------------
+export type PantryAliasPayload = {
+  id: string;
+  label: string;
+  normalizedAlias: string;
+};
+
+export type PantryLotPayload = {
+  id: string;
+  quantity: number;
+  unit: string | null;
+  approximate: boolean;
+  bestBeforeAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PantryLocationPayload = {
+  id: string;
+  location: string;
+  normalizedLocation: string;
+  quantity: number | null;
+  unit: string | null;
+  approximate: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lots: PantryLotPayload[];
+};
+
+export type PantryPackagePayload = {
+  id: string;
+  label: string;
+  quantity: number;
+  unit: string;
+  dimension: string;
+  confirmed: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PantryWarningRulePayload = {
+  id: string;
+  threshold: number;
+  unit: string | null;
+  severity: "info" | "warning" | "critical";
+  message: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PantryInventoryEventPayload = {
+  id: string;
+  type: string;
+  quantityDelta: number | null;
+  quantity: number | null;
+  unit: string | null;
+  approximate: boolean;
+  sourceType: string | null;
+  sourceId: string | null;
+  sourceIdentity: string | null;
+  occurredAt: string;
+  importedAt: string | null;
+};
+
+export type PantryForecastPayload = {
+  state: "disabled" | "available" | "unavailable";
+  reason: "missing-daily-usage" | "missing-stock" | "approximate-stock" | "incompatible-unit" | "expired-stock" | null;
+  severity: "info" | "warning" | "critical";
+  attention: boolean;
+  remainingQuantity: number | null;
+  remainingUnit: string | null;
+  remainingDays: number | null;
+  projectedRunOutAt: string | null;
+  estimate: { isEstimate: true; source: "location-quantity"; evaluatedAt: string };
+};
+
+export type PantryItemPayload = {
+  id: string;
+  name: string;
+  normalizedName: string;
+  category: string;
+  stockMode: string;
+  warningThreshold: number | null;
+  warningUnit: string | null;
+  expirationWarningDays: number | null;
+  replenishmentTarget: number | null;
+  replenishmentUnit: string | null;
+  replenishmentQuantity: number | null;
+  dailyUsageQuantity: number | null;
+  dailyUsageUnit: string | null;
+  dailyUsageWarningDays: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  aliases: PantryAliasPayload[];
+  locations: PantryLocationPayload[];
+  packages: PantryPackagePayload[];
+  warningRules: PantryWarningRulePayload[];
+  events?: PantryInventoryEventPayload[];
+  status: "ok" | "low" | "empty" | "expiring-soon" | "expired";
+  usableQuantity: number | null;
+  forecast: PantryForecastPayload;
+};
+
+export type PantrySummaryPayload = {
+  trackedItems: number;
+  lowStock: number;
+  empty: number;
+  expiringSoon: number;
+  expired: number;
+  forecastAttention: number;
 };
 
 // ── Recipes ──────────────────────────────────────────────────

@@ -38,6 +38,7 @@ data/recipes.json          # every scope
 data/grocery.json          # all scope
 data/prep-lists.json       # all scope
 data/preferences.json     # all scope
+data/pantry.json           # all scope: current state and optional history
 assets/meal-photos/*.jpg  # or avif, gif, png, webp
 ```
 
@@ -49,7 +50,14 @@ The manifest records the application version, export timestamp, selected scope, 
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | `meal-plan` | Scheduled and unscheduled meals, meal-type profiles/definitions, meal sub-type definitions, referenced recipes, recipe lineage/link closure, and available meal photos | Grocery lists, prep lists, preferences         |
 | `recipes`   | Recipes, ingredients, tags, source metadata, lineage, and linked recipe records                                                                                        | Meals, photos, grocery/prep lists, preferences |
-| `all`       | Everything in `meal-plan`, plus the complete recipe library, grocery lists/items, prep lists/items, checked state, and allowlisted preferences                         | Secrets and runtime/device configuration       |
+| `all`       | Everything in `meal-plan`, plus the complete recipe library, grocery lists/items, prep lists/items, checked state, allowlisted preferences, and Pantry state | Secrets and runtime/device configuration       |
+
+Pantry archives always identify whether inventory history is included with the
+`historyIncluded` payload field. State-only imports preserve current locations,
+lots, packages, aliases, and warning rules, then create one imported-baseline
+event per imported item/location. Full-history imports preserve event metadata
+and de-duplicate events by `sourceIdentity` (or a deterministic archive event
+identity when the source did not provide one).
 
 Meal-plan exports include every meal returned by the meal service, including unscheduled meals. A recipe dependency is included when a meal references it, and the recipe exporter closes over source-recipe and linked-sub-recipe references. Recipe-only archives never contain photo assets.
 
@@ -92,7 +100,7 @@ The current transport uses a JSON body containing a base64 `archive` string. App
 
 Preview does not mutate the database or filesystem. Identity matching is deterministic: recipes use normalized source URL and title, meals use date/meal type/name/sort order, lists use date/name, items include their parent and stable item fields, meal-type profiles use name, definitions use profile plus slug, sub-types use slug, and preferences use the default record.
 
-When conflicts exist, apply requires explicit decisions. `keep-local`, `skip`, and `import` are available for safe bulk actions; individual records may also use `replace`. Imported IDs are remapped before recipe, meal, grocery, prep, and photo references are written. Unselected records are not silently overwritten, and the result reports imported, skipped, replaced, unresolved, conflict, and asset counts.
+When conflicts exist, apply requires explicit decisions. `keep-local`, `skip`, and `import` are available for safe bulk actions; individual records may also use `replace`. Imported IDs are remapped before recipe, meal, grocery, prep, Pantry, and photo references are written. Pantry conflicts are grouped at the normalized item identity; same-location quantities are never silently merged. Separate locations remain separate, while non-conflicting Pantry records can import and unresolved conflicts remain visible in the review result. Unselected records are not silently overwritten, and the result reports imported, skipped, replaced, unresolved, conflict, and asset counts.
 
 ### Preference reset
 
@@ -104,7 +112,7 @@ Replace is available only for a validated `all` archive and requires explicit co
 
 1. Creates a fresh `all` archive of the current content and writes it as a recovery `.lrb` file.
 2. Extracts and stages photo assets in a temporary directory.
-3. Clears content and writes the imported content inside the Prisma transaction boundary.
+3. Clears content, including Pantry records and events, and writes the imported content inside the Prisma transaction boundary.
 4. Writes only accepted photo assets and removes old photo files after the database transaction succeeds.
 
 Replace is content-only by default. Preferences remain local unless the explicit allowlisted restore option is enabled. A transaction failure does not retain database changes; photo files written before failure are deleted as compensation, and temporary staging is cleaned up when the process remains alive. The recovery archive is returned in the result so the user can retain it. Photo deletion after a successful transaction is best-effort, so a failed cleanup can leave an orphaned old photo file without changing database state.

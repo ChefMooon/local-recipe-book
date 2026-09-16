@@ -7,6 +7,7 @@ Local Recipe Book is a local-first meal-planning Electron app with an embedded H
 - **Meal plan** — day, week, and month calendar views with drag-and-drop rescheduling and undo/redo
 - **Grocery list** — categorized checklist with completion progress tracking
 - **Recipe book** — search, filter, import, and view full recipe details
+- **Pantry** — track ingredients and household supplies, stock levels, dated lots, package sizes, and daily-usage forecasts
 - **Stats dashboard** — meal heatmap, cuisine and meal-type breakdowns, weekly trends
 - **Settings** — dietary preferences, household defaults, LAN/browser access, and remote server connection
 - **LAN/browser access** — expose the API and browser UI to trusted devices with a machine token
@@ -102,6 +103,8 @@ Seed data includes sample meals, preferences, grocery lists, and recipes.
 
 Data archives use the `.lrb` format and are exported, validated, previewed, and imported through the app. See [Data Management](docs/data-management.md) for archive scopes, limits, merge behavior, and recovery details.
 
+Pantry is available from the main navigation. It supports always-available items, quantity tracking, replenishment targets, separate storage locations, package purchases, expiration warnings, and optional daily-usage forecasts. Pantry-aware grocery generation subtracts only safely comparable stock and does not mutate inventory; review proposed additions after completing a grocery list. See [Pantry](docs/pantry.md) for the complete workflow and compatibility rules.
+
 ## Testing
 
 ```bash
@@ -116,6 +119,7 @@ Uses [Vitest](https://vitest.dev).
 - [Developer Guide](docs/developer-guide.md) — setup, feature workflow, testing, releases
 - [Configuration](docs/local-recipe-book-config.md) — settings, environment variables, and preference contracts
 - [Data Management](docs/data-management.md) — `.lrb` archives, validation, import, export, and recovery
+- [Pantry](docs/pantry.md) — inventory, grocery integration, stock warnings, forecasts, and migration behavior
 - [LAN and Browser Access](docs/lan-browser-access.md) — token flow and trusted-device access
 - [IPC Channels](docs/ipc-channels.md) — Electron request-response and push channel contracts
 - [Testing](docs/TEST.md) — automated test coverage and known gaps

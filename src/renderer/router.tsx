@@ -15,6 +15,7 @@ const PrepViewPage = lazy(() => import("./pages/prep-lists/prep"));
 const RecipesPage = lazy(() => import("./pages/recipes"));
 const RecipeDetailPage = lazy(() => import("./pages/recipes/detail"));
 const StatsPage = lazy(() => import("./pages/stats"));
+const PantryPage = lazy(() => import("./pages/pantry"));
 const SettingsPage = lazy(() => import("./pages/settings"));
 const ConnectPage = lazy(() => import("./pages/connect"));
 
@@ -92,6 +93,7 @@ const authenticatedRoutes = [
         element: withRouteFallback(<RecipeDetailPage />),
       },
       { path: "stats", element: withRouteFallback(<StatsPage />) },
+      { path: "pantry", element: withRouteFallback(<PantryPage />) },
       { path: "settings", element: withRouteFallback(<SettingsPage />) },
     ],
   },

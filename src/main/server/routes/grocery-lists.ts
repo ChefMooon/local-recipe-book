@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { PantryCompletionApplySchema } from "@shared/schemas/grocery-pantry-review-schemas";
 import { groceryService } from "../services.js";
 
 export const groceryListsRoutes = new Hono();
@@ -66,6 +67,23 @@ groceryListsRoutes.get("/grocery-lists/:id", async (c) => {
     return c.json({ error: "Grocery list not found" }, 404);
   }
   return c.json({ data });
+});
+
+groceryListsRoutes.get("/grocery-lists/:id/pantry-review", async (c) => {
+  try {
+    return c.json({ data: await groceryService.getPantryCompletionProposals(c.req.param("id")) });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unable to build Pantry review" }, 400);
+  }
+});
+
+groceryListsRoutes.post("/grocery-lists/:id/pantry-review", async (c) => {
+  try {
+    const body = PantryCompletionApplySchema.parse(await c.req.json());
+    return c.json({ data: await groceryService.applyPantryCompletion(c.req.param("id"), body.decisions) });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unable to apply Pantry review" }, 400);
+  }
 });
 
 groceryListsRoutes.patch("/grocery-lists/:id", async (c) => {

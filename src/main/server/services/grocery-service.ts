@@ -1,6 +1,10 @@
 import { prisma } from "../lib/prisma";
 import { bootstrapDatabase } from "../lib/bootstrap";
 import { publishCommittedChange } from "./change-event-bus";
+import { calculatePantryRequirement } from "./pantry-calculation";
+import { pantryService } from "./pantry-service";
+import type { PantryCompletionDecision } from "@shared/schemas/grocery-pantry-review-schemas";
+import { normalizePantryIdentity } from "@shared/schemas/pantry-schemas";
 
 function serializeGroceryList(groceryList: {
   id: string;
@@ -178,6 +182,76 @@ async function getListOrThrow(id: string) {
 }
 
 export class GroceryService {
+  async getPantryCompletionProposals(groceryListId: string) {
+    await bootstrapDatabase();
+    const list = await getListOrThrow(groceryListId);
+    return Promise.all(
+      list.items.map(async (item) => {
+        const quantity = item.qty == null ? null : Number.parseFloat(item.qty);
+        const calculation = await calculatePantryRequirement(item.name, quantity, item.unit);
+        return {
+          groceryItemId: item.id,
+          name: item.name,
+          quantity,
+          unit: item.unit,
+          checked: item.checked,
+          ...calculation,
+          decisionRequired: calculation.match.status !== "matched",
+        };
+      })
+    );
+  }
+
+  async applyPantryCompletion(groceryListId: string, decisions: PantryCompletionDecision[]) {
+    await bootstrapDatabase();
+    const list = await getListOrThrow(groceryListId);
+    const items = new Map(list.items.map((item) => [item.id, item]));
+    const results = [];
+    for (const decision of decisions) {
+      const item = items.get(decision.itemId);
+      if (!item || decision.action === "skip") continue;
+      const quantity = decision.purchasedQuantity ?? (item.qty == null ? null : Number.parseFloat(item.qty));
+      if (quantity == null || !Number.isFinite(quantity) || quantity <= 0) continue;
+
+      let pantryItemId = decision.pantryItemId;
+      if (decision.action === "match" && pantryItemId) {
+        const pantryItem = await pantryService.get(pantryItemId);
+        if (!pantryItem) throw new Error("Pantry item not found");
+        if (pantryItem.stockMode === "always-available") continue;
+      }
+      if (decision.action === "create") {
+        const normalizedName = normalizePantryIdentity(item.name);
+        const existing = (await pantryService.list({ search: item.name }))
+          .find((candidate) => candidate.normalizedName === normalizedName);
+        if (existing) {
+          pantryItemId = existing.id;
+        } else {
+          const created = await pantryService.create({
+            name: item.name,
+            category: item.category,
+            stockMode: "track-quantity",
+            aliases: [],
+            locations: [],
+            packages: [],
+            warningRules: [],
+          });
+          pantryItemId = created?.id;
+        }
+      }
+      if (!pantryItemId) throw new Error(`Pantry match is required for ${item.name}`);
+      const updated = await pantryService.applyStockAction(pantryItemId, {
+        type: "add",
+        location: decision.location ?? "Unspecified",
+        quantity,
+        unit: decision.unit ?? item.unit,
+        approximate: decision.approximate ?? false,
+        note: `Purchased from grocery list ${groceryListId}`,
+      });
+      results.push({ groceryItemId: item.id, pantryItemId, item: updated });
+    }
+    return results;
+  }
+
   async listGroceryLists() {
     await bootstrapDatabase();
 

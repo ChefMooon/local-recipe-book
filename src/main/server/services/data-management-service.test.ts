@@ -475,6 +475,7 @@ describe("DataManagementService", () => {
       "grocery",
       "prep-lists",
       "preferences",
+      "pantry",
     ]);
   });
 

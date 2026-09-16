@@ -20,6 +20,20 @@ export const ApiPaths = {
     `/api/grocery-lists/${listId}/items/${itemId}`,
   groceryListReorder: (listId: string) =>
     `/api/grocery-lists/${listId}/reorder`,
+  groceryListPantryReview: (listId: string) =>
+    `/api/grocery-lists/${listId}/pantry-review`,
+
+  // Pantry
+  pantry: "/api/pantry",
+  pantrySummary: "/api/pantry/summary",
+  pantryItem: (id: string) => `/api/pantry/${id}`,
+  pantryItemStock: (id: string) => `/api/pantry/${id}/stock`,
+  pantryItemPackageStock: (id: string) => `/api/pantry/${id}/package-stock`,
+  pantryItemLots: (id: string) => `/api/pantry/${id}/lots`,
+  pantryItemLot: (id: string, lotId: string) => `/api/pantry/${id}/lots/${lotId}`,
+  pantryItemPackages: (id: string) => `/api/pantry/${id}/packages`,
+  pantryItemWarnings: (id: string) => `/api/pantry/${id}/warnings`,
+  pantryItemEvents: (id: string) => `/api/pantry/${id}/events`,
 
   // Prep lists
   prepLists: "/api/prep-lists",

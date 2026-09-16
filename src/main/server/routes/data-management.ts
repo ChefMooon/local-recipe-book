@@ -112,10 +112,18 @@ dataManagementRoutes.get(
       );
     }
 
-    try {
-      const result = await dataManagementService.exportArchive(
-        scopeResult.data
+    const history = c.req.query("history");
+    if (history !== undefined && history !== "state" && history !== "full") {
+      return c.json(
+        { error: "History must be state or full", code: "DATA_ARCHIVE_INVALID_HISTORY" },
+        400
       );
+    }
+
+    try {
+      const result = history === "full"
+        ? await dataManagementService.exportArchive(scopeResult.data, true)
+        : await dataManagementService.exportArchive(scopeResult.data);
       return c.body(result.archive, 200, {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="${result.fileName}"`,

@@ -15,6 +15,7 @@ export const DATA_ARCHIVE_LAYOUT = {
     grocery: "data/grocery.json",
     "prep-lists": "data/prep-lists.json",
     preferences: "data/preferences.json",
+    pantry: "data/pantry.json",
   },
   assets: {
     mealPhotos: "assets/meal-photos",
@@ -30,13 +31,14 @@ export const DataArchiveDomainSchema = z.enum([
   "grocery",
   "prep-lists",
   "preferences",
+  "pantry",
 ]);
 export type DataArchiveDomain = z.infer<typeof DataArchiveDomainSchema>;
 
 export const DATA_ARCHIVE_SCOPE_DOMAINS = {
   "meal-plan": ["meal-plan", "recipes"],
   recipes: ["recipes"],
-  all: ["meal-plan", "recipes", "grocery", "prep-lists", "preferences"],
+  all: ["meal-plan", "recipes", "grocery", "prep-lists", "preferences", "pantry"],
 } as const satisfies Record<ExportScope, readonly DataArchiveDomain[]>;
 
 export const SAFE_PREFERENCE_FIELDS = [
@@ -53,6 +55,7 @@ export const SAFE_PREFERENCE_FIELDS = [
   "budgetRange",
   "autoGenerateGrocery",
   "consolidateIngredients",
+  "autoReviewPantry",
   "defaultPlanLength",
   "groceryGrouping",
   "defaultRecipeView",
@@ -591,6 +594,7 @@ export const SafePreferencesSchema = z
     budgetRange: z.string().max(200),
     autoGenerateGrocery: z.boolean(),
     consolidateIngredients: z.boolean(),
+    autoReviewPantry: z.boolean().default(true),
     defaultPlanLength: z.string().max(50),
     groceryGrouping: z.string().max(200),
     defaultRecipeView: z.string().max(200),
@@ -616,6 +620,121 @@ export type DataArchivePreferencesPayload = z.infer<
   typeof PreferencesPayloadSchema
 >;
 
+const PantryAliasArchiveSchema = z.object({
+  id: archiveIdSchema,
+  label: z.string().trim().min(1).max(500),
+  normalizedAlias: z.string().trim().min(1).max(500),
+  createdAt: archiveDateSchema,
+}).passthrough();
+
+const PantryLotArchiveSchema = z.object({
+  id: archiveIdSchema,
+  quantity: z.number().finite().nonnegative(),
+  unit: z.string().nullable(),
+  approximate: z.boolean(),
+  bestBeforeAt: archiveNullableDateSchema,
+  expiresAt: archiveNullableDateSchema,
+  createdAt: archiveDateSchema,
+  updatedAt: archiveDateSchema,
+}).passthrough();
+
+const PantryLocationArchiveSchema = z.object({
+  id: archiveIdSchema,
+  location: z.string().trim().min(1).max(500),
+  normalizedLocation: z.string().trim().min(1).max(500),
+  quantity: z.number().finite().nullable(),
+  unit: z.string().nullable(),
+  approximate: z.boolean(),
+  createdAt: archiveDateSchema,
+  updatedAt: archiveDateSchema,
+  lots: z.array(PantryLotArchiveSchema),
+}).passthrough();
+
+const PantryPackageArchiveSchema = z.object({
+  id: archiveIdSchema,
+  label: z.string().trim().min(1).max(500),
+  quantity: z.number().finite().nonnegative(),
+  unit: z.string().trim().min(1).max(100),
+  dimension: z.string().trim().min(1).max(100),
+  confirmed: z.boolean(),
+  enabled: z.boolean(),
+  createdAt: archiveDateSchema,
+  updatedAt: archiveDateSchema,
+}).passthrough();
+
+const PantryWarningArchiveSchema = z.object({
+  id: archiveIdSchema,
+  threshold: z.number().finite().nonnegative(),
+  unit: z.string().nullable(),
+  severity: z.string().trim().min(1).max(50),
+  message: z.string().nullable(),
+  enabled: z.boolean(),
+  createdAt: archiveDateSchema,
+  updatedAt: archiveDateSchema,
+}).passthrough();
+
+const PantryEventArchiveSchema = z.object({
+  id: archiveIdSchema,
+  itemId: archiveIdSchema,
+  locationStockId: archiveIdSchema.nullable(),
+  lotId: archiveIdSchema.nullable(),
+  type: z.string().trim().min(1).max(100),
+  quantityDelta: z.number().finite().nullable(),
+  quantity: z.number().finite().nullable(),
+  unit: z.string().nullable(),
+  approximate: z.boolean(),
+  sourceType: z.string().nullable(),
+  sourceId: z.string().nullable(),
+  sourceIdentity: z.string().nullable(),
+  metadataJson: z.string(),
+  occurredAt: archiveDateSchema,
+  importedAt: archiveNullableDateSchema,
+}).passthrough();
+
+const pantryDailyUsageQuantitySchema = z.number().finite().positive().nullable().optional().default(null);
+const pantryDailyUsageUnitSchema = z.string().trim().min(1).max(100).nullable().optional().default(null);
+const pantryDailyUsageWarningDaysSchema = z.number().int().nonnegative().nullable().optional().default(null);
+
+export const PantryArchiveItemSchema = z.object({
+  id: archiveIdSchema,
+  name: z.string().trim().min(1).max(500),
+  normalizedName: z.string().trim().min(1).max(500),
+  category: z.string().trim().min(1).max(200),
+  stockMode: z.string().trim().min(1).max(100),
+  warningThreshold: z.number().finite().nullable(),
+  warningUnit: z.string().nullable(),
+  expirationWarningDays: z.number().int().nonnegative().nullable(),
+  replenishmentTarget: z.number().finite().nullable(),
+  replenishmentUnit: z.string().nullable(),
+  replenishmentQuantity: z.number().finite().nullable(),
+  dailyUsageQuantity: pantryDailyUsageQuantitySchema,
+  dailyUsageUnit: pantryDailyUsageUnitSchema,
+  dailyUsageWarningDays: pantryDailyUsageWarningDaysSchema,
+  notes: z.string().nullable(),
+  createdAt: archiveDateSchema,
+  updatedAt: archiveDateSchema,
+  aliases: z.array(PantryAliasArchiveSchema),
+  locations: z.array(PantryLocationArchiveSchema),
+  packages: z.array(PantryPackageArchiveSchema),
+  warningRules: z.array(PantryWarningArchiveSchema),
+}).passthrough().superRefine((item, context) => {
+  const hasQuantity = item.dailyUsageQuantity != null;
+  const hasUnit = item.dailyUsageUnit != null;
+  if (hasQuantity !== hasUnit) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: [hasQuantity ? "dailyUsageUnit" : "dailyUsageQuantity"], message: "Daily usage quantity and unit must be provided together" });
+  }
+});
+export type PantryArchiveItem = z.infer<typeof PantryArchiveItemSchema>;
+
+export const PantryPayloadSchema = z.object({
+  domain: z.literal("pantry"),
+  version: z.literal(DATA_ARCHIVE_DOMAIN_VERSION),
+  historyIncluded: z.boolean(),
+  items: z.array(PantryArchiveItemSchema),
+  events: z.array(PantryEventArchiveSchema),
+}).passthrough();
+export type PantryPayload = z.infer<typeof PantryPayloadSchema>;
+
 export const DomainPayloadEnvelopeSchema = z
   .object({
     domain: DataArchiveDomainSchema,
@@ -629,6 +748,7 @@ export const DataArchivePayloadSchema = z.discriminatedUnion("domain", [
   GroceryPayloadSchema,
   PrepListsPayloadSchema,
   PreferencesPayloadSchema,
+  PantryPayloadSchema,
 ]);
 export type DataArchivePayload = z.infer<typeof DataArchivePayloadSchema>;
 
@@ -647,6 +767,7 @@ export const ArchiveIdMapSchema = z
     mealTypeDefinitions: z.record(archiveIdSchema, archiveIdSchema),
     mealSubTypeDefinitions: z.record(archiveIdSchema, archiveIdSchema),
     preferences: z.record(archiveIdSchema, archiveIdSchema),
+    pantryItems: z.record(archiveIdSchema, archiveIdSchema),
     assets: z.record(archiveIdSchema, archiveIdSchema),
   })
   .strict();
@@ -708,6 +829,7 @@ export const ConflictDomainSchema = z.enum([
   "meal-type-definition",
   "meal-sub-type-definition",
   "preferences",
+  "pantry-item",
 ]);
 
 export const ConflictRecordSchema = z
@@ -764,6 +886,7 @@ export const ArchiveImportRequestSchema = z
       mealTypeDefinitions: {},
       mealSubTypeDefinitions: {},
       preferences: {},
+      pantryItems: {},
       assets: {},
     }),
     restorePreferences: z.boolean().default(false),

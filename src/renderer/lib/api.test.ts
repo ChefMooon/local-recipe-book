@@ -129,7 +129,7 @@ describe("data management archive API", () => {
       new Uint8Array([80, 75, 3, 4])
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:4173/api/data-management/export?scope=recipes",
+      "http://localhost:4173/api/data-management/export?scope=recipes&history=state",
       expect.objectContaining({
         cache: "no-store",
         headers: expect.objectContaining({ Authorization: "Bearer test-token" }),

@@ -13,6 +13,7 @@ const DATA_MANAGEMENT_QUERY_KEY_PREFIXES = [
   ["prep-list"],
   ["prep-generator-meals"],
   ["stats"],
+  ["pantry"],
 ] as const;
 
 export async function invalidateDataManagementQueries(
@@ -38,6 +39,7 @@ export const ENTITY_TO_QUERY_KEYS: Record<string, readonly string[]> = {
   groceryList: ["grocery-lists", "grocery-list"],
   prepList: ["prep-lists", "prep-list"],
   preference: ["preferences"],
+  pantry: ["pantry", "grocery-list", "stats"],
 };
 
 /** Invalidate the query families affected by one server change event. */

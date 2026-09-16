@@ -295,10 +295,11 @@ async function archiveToBase64(archive: DataArchiveBinary): Promise<string> {
 }
 
 export async function exportDataArchive(
-  scope: ExportScope
+  scope: ExportScope,
+  history: "state" | "full" = "state"
 ): Promise<DataArchiveDownload> {
   const response = await fetchBinary(
-    `${ApiPaths.dataManagementExport}?scope=${encodeURIComponent(scope)}`
+    `${ApiPaths.dataManagementExport}?scope=${encodeURIComponent(scope)}&history=${history}`
   );
   return {
     blob: response.blob,

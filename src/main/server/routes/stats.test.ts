@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { statsRoutes } from "./stats";
-import { mealService } from "../services.js";
+import { mealService, pantryService } from "../services.js";
 
 vi.mock("../services.js", () => ({
   mealService: {
@@ -15,6 +15,10 @@ vi.mock("../services.js", () => ({
     getTopMeals: vi.fn(),
     getTopIngredients: vi.fn(),
     getLiveMealCountInRange: vi.fn(),
+  },
+  pantryService: {
+    summary: vi.fn(),
+    analysis: vi.fn(),
   },
 }));
 
@@ -51,6 +55,23 @@ describe("statsRoutes", () => {
     vi.mocked(mealService.getTopMeals).mockResolvedValue([] as never);
     vi.mocked(mealService.getTopIngredients).mockResolvedValue([] as never);
     vi.mocked(mealService.getLiveMealCountInRange).mockResolvedValue(5);
+    vi.mocked(pantryService.summary).mockResolvedValue({
+      trackedItems: 2,
+      lowStock: 1,
+      empty: 0,
+      expiringSoon: 0,
+      expired: 0,
+    });
+    vi.mocked(pantryService.analysis).mockResolvedValue({
+      period: "30",
+      historyStart: null,
+      historyEnd: null,
+      dataQuality: "insufficient",
+      estimate: true,
+      eventCount: 0,
+      weeklyTrend: [],
+      topConsumed: [],
+    });
   });
 
   afterEach(() => {

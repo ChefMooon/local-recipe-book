@@ -208,6 +208,7 @@ const SCHEMA_STATEMENTS = [
       "budgetRange" TEXT NOT NULL DEFAULT 'moderate',
       "autoGenerateGrocery" INTEGER NOT NULL DEFAULT 1,
       "consolidateIngredients" INTEGER NOT NULL DEFAULT 1,
+      "autoReviewPantry" INTEGER NOT NULL DEFAULT 1,
       "defaultPlanLength" TEXT NOT NULL DEFAULT '7',
       "groceryGrouping" TEXT NOT NULL DEFAULT 'category',
       "defaultRecipeView" TEXT NOT NULL DEFAULT 'basic',
@@ -303,6 +304,130 @@ const SCHEMA_STATEMENTS = [
       "value" TEXT NOT NULL
     )
   `,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryItem" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "normalizedName" TEXT NOT NULL UNIQUE,
+      "category" TEXT NOT NULL DEFAULT 'Other',
+      "stockMode" TEXT NOT NULL DEFAULT 'always-available',
+      "warningThreshold" REAL,
+      "warningUnit" TEXT,
+      "expirationWarningDays" INTEGER,
+      "replenishmentTarget" REAL,
+      "replenishmentUnit" TEXT,
+      "replenishmentQuantity" REAL,
+      "dailyUsageQuantity" REAL,
+      "dailyUsageUnit" TEXT,
+      "dailyUsageWarningDays" INTEGER,
+      "notes" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS "PantryItem_category_idx" ON "PantryItem"("category")`,
+  `CREATE INDEX IF NOT EXISTS "PantryItem_stockMode_idx" ON "PantryItem"("stockMode")`,
+  `CREATE INDEX IF NOT EXISTS "PantryItem_updatedAt_idx" ON "PantryItem"("updatedAt")`,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryAlias" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "itemId" TEXT NOT NULL,
+      "label" TEXT NOT NULL,
+      "normalizedAlias" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "PantryAlias_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "PantryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "PantryAlias_itemId_normalizedAlias_key" ON "PantryAlias"("itemId", "normalizedAlias")`,
+  `CREATE INDEX IF NOT EXISTS "PantryAlias_normalizedAlias_idx" ON "PantryAlias"("normalizedAlias")`,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryLocationStock" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "itemId" TEXT NOT NULL,
+      "location" TEXT NOT NULL DEFAULT 'Unspecified',
+      "normalizedLocation" TEXT NOT NULL DEFAULT 'unspecified',
+      "quantity" REAL,
+      "unit" TEXT,
+      "approximate" INTEGER NOT NULL DEFAULT 0,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "PantryLocationStock_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "PantryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "PantryLocationStock_itemId_normalizedLocation_key" ON "PantryLocationStock"("itemId", "normalizedLocation")`,
+  `CREATE INDEX IF NOT EXISTS "PantryLocationStock_normalizedLocation_idx" ON "PantryLocationStock"("normalizedLocation")`,
+  `CREATE INDEX IF NOT EXISTS "PantryLocationStock_updatedAt_idx" ON "PantryLocationStock"("updatedAt")`,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryLot" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "locationStockId" TEXT NOT NULL,
+      "quantity" REAL NOT NULL,
+      "unit" TEXT,
+      "approximate" INTEGER NOT NULL DEFAULT 0,
+      "bestBeforeAt" DATETIME,
+      "expiresAt" DATETIME,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "PantryLot_locationStockId_fkey" FOREIGN KEY ("locationStockId") REFERENCES "PantryLocationStock"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS "PantryLot_locationStockId_expiresAt_idx" ON "PantryLot"("locationStockId", "expiresAt")`,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryPackage" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "itemId" TEXT NOT NULL,
+      "label" TEXT NOT NULL,
+      "quantity" REAL NOT NULL,
+      "unit" TEXT NOT NULL,
+      "dimension" TEXT NOT NULL,
+      "confirmed" INTEGER NOT NULL DEFAULT 0,
+      "enabled" INTEGER NOT NULL DEFAULT 1,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "PantryPackage_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "PantryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS "PantryPackage_itemId_enabled_idx" ON "PantryPackage"("itemId", "enabled")`,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryWarningRule" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "itemId" TEXT NOT NULL,
+      "threshold" REAL NOT NULL,
+      "unit" TEXT,
+      "severity" TEXT NOT NULL DEFAULT 'warning',
+      "message" TEXT,
+      "enabled" INTEGER NOT NULL DEFAULT 1,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "PantryWarningRule_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "PantryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS "PantryWarningRule_itemId_enabled_idx" ON "PantryWarningRule"("itemId", "enabled")`,
+  `
+    CREATE TABLE IF NOT EXISTS "PantryInventoryEvent" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "itemId" TEXT NOT NULL,
+      "locationStockId" TEXT,
+      "lotId" TEXT,
+      "type" TEXT NOT NULL,
+      "quantityDelta" REAL,
+      "quantity" REAL,
+      "unit" TEXT,
+      "approximate" INTEGER NOT NULL DEFAULT 0,
+      "sourceType" TEXT,
+      "sourceId" TEXT,
+      "sourceIdentity" TEXT UNIQUE,
+      "metadataJson" TEXT NOT NULL DEFAULT '{}',
+      "occurredAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "importedAt" DATETIME,
+      CONSTRAINT "PantryInventoryEvent_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "PantryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "PantryInventoryEvent_locationStockId_fkey" FOREIGN KEY ("locationStockId") REFERENCES "PantryLocationStock"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT "PantryInventoryEvent_lotId_fkey" FOREIGN KEY ("lotId") REFERENCES "PantryLot"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    )
+  `,
+  `CREATE INDEX IF NOT EXISTS "PantryInventoryEvent_itemId_occurredAt_idx" ON "PantryInventoryEvent"("itemId", "occurredAt")`,
+  `CREATE INDEX IF NOT EXISTS "PantryInventoryEvent_locationStockId_occurredAt_idx" ON "PantryInventoryEvent"("locationStockId", "occurredAt")`,
+  `CREATE INDEX IF NOT EXISTS "PantryInventoryEvent_type_occurredAt_idx" ON "PantryInventoryEvent"("type", "occurredAt")`,
 ] as const;
 
 async function ensureMissingColumns(
@@ -675,6 +800,16 @@ export async function ensureDatabaseSchema(): Promise<void> {
     notes: `ALTER TABLE "PrepList" ADD COLUMN "notes" TEXT`,
   } as const;
 
+  const safeUserPreferenceAlterStatements = {
+    autoReviewPantry: `ALTER TABLE "UserPreference" ADD COLUMN "autoReviewPantry" INTEGER NOT NULL DEFAULT 1`,
+  } as const;
+
+  const safePantryItemAlterStatements = {
+    dailyUsageQuantity: `ALTER TABLE "PantryItem" ADD COLUMN "dailyUsageQuantity" REAL`,
+    dailyUsageUnit: `ALTER TABLE "PantryItem" ADD COLUMN "dailyUsageUnit" TEXT`,
+    dailyUsageWarningDays: `ALTER TABLE "PantryItem" ADD COLUMN "dailyUsageWarningDays" INTEGER`,
+  } as const;
+
   await ensureMissingColumns("Meal", safeMealAlterStatements);
   await ensureMissingColumns("MealTypeProfile", safeMealTypeProfileAlterStatements);
   await ensureMissingColumns("MealTypeDefinition", safeMealTypeDefinitionAlterStatements);
@@ -693,6 +828,8 @@ export async function ensureDatabaseSchema(): Promise<void> {
   await ensureMissingColumns("Recipe", safeRecipeAlterStatements);
   await ensureMissingColumns("RecipeIngredient", safeRecipeIngredientAlterStatements);
   await ensureMissingColumns("PrepList", safePrepListAlterStatements);
+  await ensureMissingColumns("UserPreference", safeUserPreferenceAlterStatements);
+  await ensureMissingColumns("PantryItem", safePantryItemAlterStatements);
   await repairBrokenMealSortOrderColumn();
   await repairMalformedMealSubTypeIndex();
   await normalizeMealSortOrderValues();

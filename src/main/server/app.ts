@@ -20,6 +20,7 @@ import { statsRoutes } from "./routes/stats.js";
 import { dataManagementRoutes } from "./routes/data-management.js";
 import { pairingRoutes } from "./routes/pairing.js";
 import { syncRoutes } from "./routes/sync.js";
+import { pantryRoutes } from "./routes/pantry.js";
 
 function getRequestId(c: Context): string | undefined {
   return (
@@ -139,6 +140,7 @@ export function createApp(config: ServerConfig) {
   app.route("/api", dataManagementRoutes);
   app.route("/api", pairingRoutes);
   app.route("/api", syncRoutes);
+  app.route("/api", pantryRoutes);
 
   return app;
 }

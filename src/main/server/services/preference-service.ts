@@ -26,6 +26,7 @@ const stringFields = [
 const booleanFields = [
   "autoGenerateGrocery",
   "consolidateIngredients",
+  "autoReviewPantry",
 ] as const;
 
 export type PreferenceListField = (typeof orderedListFields)[number];
@@ -47,6 +48,7 @@ export type PreferencesPayload = {
   budgetRange: string;
   autoGenerateGrocery: boolean;
   consolidateIngredients: boolean;
+  autoReviewPantry: boolean;
   defaultPlanLength: string;
   groceryGrouping: string;
   defaultRecipeView: string;
@@ -71,6 +73,7 @@ const DEFAULT_PREFERENCE_VALUES = {
   budgetRange: "moderate",
   autoGenerateGrocery: true,
   consolidateIngredients: true,
+  autoReviewPantry: true,
   defaultPlanLength: "7",
   groceryGrouping: "category",
   defaultRecipeView: "basic",
@@ -147,6 +150,7 @@ function serializePreferences(preferences: UserPreference): PreferencesPayload {
     budgetRange: preferences.budgetRange,
     autoGenerateGrocery: preferences.autoGenerateGrocery,
     consolidateIngredients: preferences.consolidateIngredients,
+    autoReviewPantry: preferences.autoReviewPantry,
     defaultPlanLength: preferences.defaultPlanLength,
     groceryGrouping: preferences.groceryGrouping,
     defaultRecipeView: preferences.defaultRecipeView,

@@ -270,6 +270,7 @@ function emptyArchiveIdMap(): ArchiveIdMap {
     mealTypeDefinitions: {},
     mealSubTypeDefinitions: {},
     preferences: {},
+    pantryItems: {},
     assets: {},
   };
 }
@@ -465,6 +466,7 @@ type LocalSnapshot = {
   mealTypeDefinitions: Array<Record<string, unknown>>;
   mealSubTypeDefinitions: Array<Record<string, unknown>>;
   preferences: Record<string, unknown> | null;
+  pantryItems: Array<Record<string, unknown>>;
 };
 
 type ParsedDataArchive = {
@@ -918,7 +920,105 @@ export class DataManagementService {
     };
   }
 
-  async exportArchive(scopeInput: ExportScope) {
+  private async exportPantry(historyIncluded: boolean) {
+    const pantryDelegate = (prisma as unknown as {
+      pantryItem?: typeof prisma.pantryItem;
+      pantryInventoryEvent?: typeof prisma.pantryInventoryEvent;
+    }).pantryItem;
+    if (!pantryDelegate) {
+      return {
+        domain: "pantry" as const,
+        version: DATA_ARCHIVE_DOMAIN_VERSION,
+        historyIncluded,
+        items: [],
+        events: [],
+      };
+    }
+    const items = await pantryDelegate.findMany({
+      include: {
+        aliases: true,
+        locations: { include: { lots: true }, orderBy: { normalizedLocation: "asc" } },
+        packages: { orderBy: { createdAt: "asc" } },
+        warningRules: { orderBy: { createdAt: "asc" } },
+      },
+      orderBy: [{ normalizedName: "asc" }, { id: "asc" }],
+    });
+    const events = historyIncluded
+      ? await (prisma as unknown as { pantryInventoryEvent: typeof prisma.pantryInventoryEvent }).pantryInventoryEvent.findMany({ orderBy: [{ occurredAt: "asc" }, { id: "asc" }] })
+      : [];
+
+    return {
+      domain: "pantry" as const,
+      version: DATA_ARCHIVE_DOMAIN_VERSION,
+      historyIncluded,
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        normalizedName: item.normalizedName,
+        category: item.category,
+        stockMode: item.stockMode,
+        warningThreshold: item.warningThreshold,
+        warningUnit: item.warningUnit,
+        expirationWarningDays: item.expirationWarningDays,
+        replenishmentTarget: item.replenishmentTarget,
+        replenishmentUnit: item.replenishmentUnit,
+        replenishmentQuantity: item.replenishmentQuantity,
+        dailyUsageQuantity: item.dailyUsageQuantity,
+        dailyUsageUnit: item.dailyUsageUnit,
+        dailyUsageWarningDays: item.dailyUsageWarningDays,
+        notes: item.notes,
+        createdAt: item.createdAt.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+        aliases: item.aliases.map((alias) => ({
+          id: alias.id,
+          label: alias.label,
+          normalizedAlias: alias.normalizedAlias,
+          createdAt: alias.createdAt.toISOString(),
+        })),
+        locations: item.locations.map((location) => ({
+          id: location.id,
+          location: location.location,
+          normalizedLocation: location.normalizedLocation,
+          quantity: location.quantity,
+          unit: location.unit,
+          approximate: location.approximate,
+          createdAt: location.createdAt.toISOString(),
+          updatedAt: location.updatedAt.toISOString(),
+          lots: location.lots.map((lot) => ({
+            id: lot.id,
+            quantity: lot.quantity,
+            unit: lot.unit,
+            approximate: lot.approximate,
+            bestBeforeAt: toIsoDate(lot.bestBeforeAt),
+            expiresAt: toIsoDate(lot.expiresAt),
+            createdAt: lot.createdAt.toISOString(),
+            updatedAt: lot.updatedAt.toISOString(),
+          })),
+        })),
+        packages: item.packages.map((pack) => ({ ...pack, createdAt: pack.createdAt.toISOString(), updatedAt: pack.updatedAt.toISOString() })),
+        warningRules: item.warningRules.map((rule) => ({ ...rule, createdAt: rule.createdAt.toISOString(), updatedAt: rule.updatedAt.toISOString() })),
+      })),
+      events: events.map((event) => ({
+        id: event.id,
+        itemId: event.itemId,
+        locationStockId: event.locationStockId,
+        lotId: event.lotId,
+        type: event.type,
+        quantityDelta: event.quantityDelta,
+        quantity: event.quantity,
+        unit: event.unit,
+        approximate: event.approximate,
+        sourceType: event.sourceType,
+        sourceId: event.sourceId,
+        sourceIdentity: event.sourceIdentity,
+        metadataJson: event.metadataJson,
+        occurredAt: event.occurredAt.toISOString(),
+        importedAt: toIsoDate(event.importedAt),
+      })),
+    };
+  }
+
+  async exportArchive(scopeInput: ExportScope, historyIncluded = false) {
     const scope = ExportScopeSchema.parse(scopeInput);
     await bootstrapDatabase();
     const exportedAt = new Date().toISOString();
@@ -948,7 +1048,8 @@ export class DataManagementService {
       payloads.push(
         DataArchivePayloadSchema.parse(await this.exportGrocery()),
         DataArchivePayloadSchema.parse(await this.exportPrepLists()),
-        DataArchivePayloadSchema.parse(await this.exportPreferences())
+        DataArchivePayloadSchema.parse(await this.exportPreferences()),
+        DataArchivePayloadSchema.parse(await this.exportPantry(historyIncluded))
       );
     }
 
@@ -1344,6 +1445,7 @@ export class DataManagementService {
       profiles,
       subTypes,
       preferences,
+      pantryItems,
     ] = await Promise.all([
       prisma.meal.findMany(),
       prisma.recipe.findMany(),
@@ -1353,6 +1455,7 @@ export class DataManagementService {
       prisma.mealTypeProfile.findMany({ include: { mealTypes: true } }),
       prisma.mealSubTypeDefinition.findMany(),
       prisma.userPreference.findUnique({ where: { id: "default" } }),
+      (prisma as unknown as { pantryItem?: typeof prisma.pantryItem }).pantryItem?.findMany({ select: { id: true, name: true, normalizedName: true, category: true } }) ?? [],
     ]);
 
     const groceryRecords = groceryLists as Array<Record<string, unknown>>;
@@ -1385,6 +1488,7 @@ export class DataManagementService {
       ),
       mealSubTypeDefinitions: subTypes as Array<Record<string, unknown>>,
       preferences: (preferences as Record<string, unknown> | null) ?? null,
+      pantryItems: pantryItems as Array<Record<string, unknown>>,
     };
   }
 
@@ -1721,6 +1825,29 @@ export class DataManagementService {
           );
         }
       }
+
+      if (payload.domain === "pantry") {
+        for (const item of payload.items) {
+          const byId = findById(local.pantryItems, item.id);
+          const byIdentity = findByIdentity(local.pantryItems, (record) =>
+            normalizeIdentityText(String(record.normalizedName ?? record.name ?? "")) ===
+            normalizeIdentityText(item.normalizedName)
+          );
+          const match = byId ?? byIdentity;
+          if (match) {
+            addConflict(
+              "pantry-item",
+              "pantryItems",
+              item,
+              match,
+              byId ? `pantry-item:id:${item.id}` : `pantry-item:name:${item.normalizedName}`,
+              byId ? "same-id" : "same-identity"
+            );
+          } else {
+            addNew("pantryItems", item);
+          }
+        }
+      }
     }
 
     return { local, conflicts, idMap };
@@ -1746,6 +1873,7 @@ export class DataManagementService {
           mealTypeDefinitions: local.mealTypeDefinitions.length,
           mealSubTypeDefinitions: local.mealSubTypeDefinitions.length,
           preferences: local.preferences ? 1 : 0,
+          pantryItems: local.pantryItems.length,
         },
         imported: {
           meals: parsed.payloads.find((payload) => payload.domain === "meal-plan")?.domain === "meal-plan"
@@ -1777,6 +1905,9 @@ export class DataManagementService {
             : 0,
           preferences: parsed.payloads.find((payload) => payload.domain === "preferences")?.domain === "preferences"
             ? (parsed.payloads.find((payload) => payload.domain === "preferences") as Extract<DataArchivePayload, { domain: "preferences" }>).preferences.length
+            : 0,
+          pantryItems: parsed.payloads.find((payload) => payload.domain === "pantry")?.domain === "pantry"
+            ? (parsed.payloads.find((payload) => payload.domain === "pantry") as Extract<DataArchivePayload, { domain: "pantry" }>).items.length
             : 0,
         },
       },
@@ -2022,6 +2153,12 @@ export class DataManagementService {
   }
 
   private async clearContentForReplace(tx: ImportTransaction) {
+    const pantryTx = tx as ImportTransaction & {
+      pantryInventoryEvent?: ImportTransaction["pantryInventoryEvent"];
+      pantryItem?: ImportTransaction["pantryItem"];
+    };
+    await pantryTx.pantryInventoryEvent?.deleteMany();
+    await pantryTx.pantryItem?.deleteMany();
     await tx.recipeLink.deleteMany();
     await tx.meal.deleteMany();
     await tx.mealTypeDefinition.deleteMany();
@@ -2423,6 +2560,129 @@ export class DataManagementService {
         });
         counts.preferencesRestored = true;
         countRecord(preferenceAction);
+      }
+    }
+
+    const pantry = parsed.payloads.find(
+      (payload): payload is Extract<DataArchivePayload, { domain: "pantry" }> =>
+        payload.domain === "pantry"
+    );
+    if (pantry) {
+      const pantryItemDelegate = (tx as unknown as { pantryItem?: typeof tx.pantryItem }).pantryItem;
+      if (!pantryItemDelegate) return;
+      for (const item of pantry.items) {
+        const recordAction = action("pantryItems", item.id);
+        countRecord(recordAction);
+        if (recordAction === "skip") continue;
+        const id = idMap.pantryItems[item.id] ?? item.id;
+        const itemData = {
+          name: item.name,
+          normalizedName: item.normalizedName,
+          category: item.category,
+          stockMode: item.stockMode,
+          warningThreshold: item.warningThreshold,
+          warningUnit: item.warningUnit,
+          expirationWarningDays: item.expirationWarningDays,
+          replenishmentTarget: item.replenishmentTarget,
+          replenishmentUnit: item.replenishmentUnit,
+          replenishmentQuantity: item.replenishmentQuantity,
+          dailyUsageQuantity: item.dailyUsageQuantity,
+          dailyUsageUnit: item.dailyUsageUnit,
+          dailyUsageWarningDays: item.dailyUsageWarningDays,
+          notes: item.notes,
+        };
+        if (recordAction === "replace") {
+          await tx.pantryItem.update({ where: { id }, data: itemData });
+          await tx.pantryInventoryEvent.deleteMany({ where: { itemId: id } });
+          await tx.pantryAlias.deleteMany({ where: { itemId: id } });
+          await tx.pantryLocationStock.deleteMany({ where: { itemId: id } });
+          await tx.pantryPackage.deleteMany({ where: { itemId: id } });
+          await tx.pantryWarningRule.deleteMany({ where: { itemId: id } });
+        } else {
+          await tx.pantryItem.create({ data: { id, ...itemData, createdAt: new Date(item.createdAt), updatedAt: new Date(item.updatedAt) } });
+        }
+
+        await tx.pantryAlias.createMany({ data: item.aliases.map((alias) => ({
+          id: input.mode === "replace" ? alias.id : randomUUID(),
+          itemId: id,
+          label: alias.label,
+          normalizedAlias: alias.normalizedAlias,
+          createdAt: new Date(alias.createdAt),
+        })) });
+        const locationIds = new Map<string, string>();
+        const lotIds = new Map<string, string>();
+        for (const location of item.locations) {
+          const locationId = input.mode === "replace" ? location.id : randomUUID();
+          locationIds.set(location.id, locationId);
+          await tx.pantryLocationStock.create({ data: {
+            id: locationId,
+            itemId: id,
+            location: location.location,
+            normalizedLocation: location.normalizedLocation,
+            quantity: location.quantity,
+            unit: location.unit,
+            approximate: location.approximate,
+            createdAt: new Date(location.createdAt),
+            updatedAt: new Date(location.updatedAt),
+          } });
+          for (const lot of location.lots) {
+            const lotId = input.mode === "replace" ? lot.id : randomUUID();
+            lotIds.set(lot.id, lotId);
+            await tx.pantryLot.create({ data: {
+              id: lotId,
+              locationStockId: locationId,
+              quantity: lot.quantity,
+              unit: lot.unit,
+              approximate: lot.approximate,
+              bestBeforeAt: lot.bestBeforeAt ? new Date(lot.bestBeforeAt) : null,
+              expiresAt: lot.expiresAt ? new Date(lot.expiresAt) : null,
+              createdAt: new Date(lot.createdAt),
+              updatedAt: new Date(lot.updatedAt),
+            } });
+          }
+        }
+        await tx.pantryPackage.createMany({ data: item.packages.map((pack) => ({
+          id: input.mode === "replace" ? pack.id : randomUUID(), itemId: id, label: pack.label,
+          quantity: pack.quantity, unit: pack.unit, dimension: pack.dimension,
+          confirmed: pack.confirmed, enabled: pack.enabled,
+          createdAt: new Date(pack.createdAt), updatedAt: new Date(pack.updatedAt),
+        })) });
+        await tx.pantryWarningRule.createMany({ data: item.warningRules.map((rule) => ({
+          id: input.mode === "replace" ? rule.id : randomUUID(), itemId: id, threshold: rule.threshold,
+          unit: rule.unit, severity: rule.severity, message: rule.message, enabled: rule.enabled,
+          createdAt: new Date(rule.createdAt), updatedAt: new Date(rule.updatedAt),
+        })) });
+
+        if (pantry.historyIncluded) {
+          for (const event of pantry.events.filter((candidate) => candidate.itemId === item.id)) {
+            const sourceIdentity = event.sourceIdentity ?? `archive:${item.id}:event:${event.id}`;
+            const existing = await tx.pantryInventoryEvent.findUnique({ where: { sourceIdentity } });
+            if (existing) continue;
+            await tx.pantryInventoryEvent.create({ data: {
+              id: input.mode === "replace" ? event.id : randomUUID(), itemId: id,
+              locationStockId: event.locationStockId ? locationIds.get(event.locationStockId) ?? null : null,
+              lotId: event.lotId ? lotIds.get(event.lotId) ?? null : null,
+              type: event.type, quantityDelta: event.quantityDelta, quantity: event.quantity,
+              unit: event.unit, approximate: event.approximate, sourceType: event.sourceType,
+              sourceId: event.sourceId, sourceIdentity, metadataJson: event.metadataJson,
+              occurredAt: new Date(event.occurredAt), importedAt: event.importedAt ? new Date(event.importedAt) : new Date(),
+            } });
+          }
+        } else {
+          for (const location of item.locations) {
+            const sourceIdentity = `archive:${item.id}:baseline:${location.normalizedLocation}`;
+            const existing = await tx.pantryInventoryEvent.findUnique({ where: { sourceIdentity } });
+            if (existing) continue;
+            await tx.pantryInventoryEvent.create({ data: {
+              id: randomUUID(), itemId: id, locationStockId: locationIds.get(location.id) ?? null,
+              type: "imported-baseline", quantity: location.quantity, unit: location.unit,
+              approximate: location.approximate, sourceType: "archive", sourceId: item.id,
+              sourceIdentity,
+              metadataJson: JSON.stringify({ sourceArchive: parsed.manifest.format, sourceVersion: parsed.manifest.schemaVersion }),
+              occurredAt: new Date(), importedAt: new Date(),
+            } });
+          }
+        }
       }
     }
   }

@@ -138,6 +138,8 @@ The runtime check is used by `npm run dev` and confirms that the pure-JS archive
 
 See [data-management.md](data-management.md) for archive scopes, validation limits, secret exclusion, merge decisions, replace recovery, browser limitations, and focused fixtures.
 
+See [pantry.md](pantry.md) for the Pantry domain contract, user workflows, grocery calculation rules, daily-usage forecasts, and legacy pantry-staple migration behavior.
+
 ---
 
 ## 5. Configuration
@@ -233,6 +235,8 @@ export default function MyPage() {
 ### Frontend implementation note
 
 For any frontend or UI behavior changes, align with `docs/STYLE-GUIDE.md` before implementation.
+
+For Pantry changes, also preserve the service-owned calculation boundary and typed contracts described in [pantry.md](pantry.md). Update [data-management.md](data-management.md) when Pantry archive behavior changes.
 
 ---
 

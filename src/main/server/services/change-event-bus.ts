@@ -8,6 +8,7 @@ export type ChangeEntity =
   | "groceryList"
   | "prepList"
   | "preference"
+  | "pantry"
   | "dataManagement";
 
 export type ChangeAction = "create" | "update" | "delete" | "bulk";

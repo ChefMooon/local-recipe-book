@@ -418,6 +418,7 @@ export function DataManagementSection({
   const queryClient = useQueryClient();
   const operationRef = useRef(0);
   const [scope, setScope] = useState<ExportScope>("all");
+  const [history, setHistory] = useState<"state" | "full">("state");
   const [exportStatus, setExportStatus] = useState<OperationStatus>("idle");
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportFileName, setExportFileName] = useState<string | null>(null);
@@ -471,7 +472,7 @@ export function DataManagementSection({
     setExportFileName(null);
 
     try {
-      const download = await api.exportDataArchive(scope);
+      const download = await api.exportDataArchive(scope, history);
       if (!isCurrentOperation(operation)) return;
 
       const saveResult = await platform.saveDataArchive({
@@ -699,6 +700,21 @@ export function DataManagementSection({
           ))}
         </fieldset>
         <ScopeSummary scope={scope} />
+
+        <div className={styles.fieldGroup}>
+          <label className={styles.fieldLabel} htmlFor="data-management-history">
+            Pantry archive history
+          </label>
+          <select
+            className={styles.select}
+            id="data-management-history"
+            onChange={(event) => setHistory(event.target.value as "state" | "full")}
+            value={history}
+          >
+            <option value="state">Current Pantry state only</option>
+            <option value="full">Current state and full inventory history</option>
+          </select>
+        </div>
 
         <div className={styles.dataManagementActions}>
           <Button
