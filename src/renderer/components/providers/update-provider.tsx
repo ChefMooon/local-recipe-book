@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
+import { useNavigate } from "react-router";
 
 import { useToast } from "./toast-provider";
 import { getPlatform, type UpdateInfo, type UpdateProgress, type UpdateState } from "@/lib/platform";
@@ -57,6 +58,7 @@ export function clampUpdateProgress(value: unknown): number | null {
 }
 
 export function UpdateProvider({ children }: PropsWithChildren) {
+  const navigate = useNavigate();
   const platform = getPlatform();
   const { toast } = useToast();
   const [supported, setSupported] = useState(false);
@@ -139,6 +141,12 @@ export function UpdateProvider({ children }: PropsWithChildren) {
         title: "Update available",
         description: `${describeVersion(state.info)} Review the release notes before downloading.`,
         duration: 9000,
+        action: {
+          label: "Open Settings",
+          onClick: () => {
+            navigate("/settings", { state: { focus: "updates" } });
+          },
+        },
       });
     } else if (state.status === "downloaded") {
       toastKeysRef.current.add(key);
@@ -169,7 +177,7 @@ export function UpdateProvider({ children }: PropsWithChildren) {
         variant: "error",
       });
     }
-  }, [platform, state, supported, toast]);
+  }, [navigate, platform, state, supported, toast]);
 
   const value = useMemo<UpdateContextValue>(
     () => ({

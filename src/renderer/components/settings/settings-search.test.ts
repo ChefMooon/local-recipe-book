@@ -22,6 +22,7 @@ const items: SettingsSearchItem[] = [
     label: "Check for updates",
     description: "Update checks when the app starts",
     keywords: ["startup"],
+    sectionId: "general",
     targetId: "updates",
   },
 ];
@@ -37,5 +38,9 @@ describe("settings search", () => {
   it("returns no results for an empty or unmatched query", () => {
     expect(searchSettings(items, categories, "")).toEqual([]);
     expect(searchSettings(items, categories, "missing")).toEqual([]);
+  });
+
+  it("preserves the section target for update results", () => {
+    expect(searchSettings(items, categories, "updates")[0]?.sectionId).toBe("general");
   });
 });

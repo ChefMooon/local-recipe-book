@@ -114,6 +114,7 @@ vi.mock("@/components/layout/connection-banner", () => ({
 
 vi.mock("react-router", () => ({
   Outlet: () => <div data-testid="outlet" />,
+  useNavigate: () => () => undefined,
 }));
 
 describe("AuthenticatedAppLayout", () => {

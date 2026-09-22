@@ -179,7 +179,7 @@ export function GeneralSettings({
             />
           </div>
           {updatesSupported && (
-            <div style={{ marginTop: "1rem" }}>
+            <div data-setting-id="updates" style={{ marginTop: "1rem" }} tabIndex={-1}>
               <p className={styles.fieldHint}>
                 Update status:{" "}
                 {updateState.status === "downloading"

@@ -6,6 +6,7 @@ import {
   getInitialSettingsTabId,
   getNextSettingsTabId,
   getStoredSettingsTabId,
+  isUpdateSettingsNavigationState,
 } from "./settings";
 
 describe("Settings tab keyboard navigation", () => {
@@ -35,5 +36,11 @@ describe("Settings tab keyboard navigation", () => {
     };
 
     expect(getStoredSettingsTabId(storage)).toBe("appearance");
+  });
+
+  it("recognizes the update toast destination state", () => {
+    expect(isUpdateSettingsNavigationState({ focus: "updates" })).toBe(true);
+    expect(isUpdateSettingsNavigationState({ focus: "general" })).toBe(false);
+    expect(isUpdateSettingsNavigationState(null)).toBe(false);
   });
 });

@@ -7,6 +7,7 @@ import {
   type MutableRefObject,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "react-router";
 
 import { AppearanceSettings } from "@/components/settings/categories/AppearanceSettings";
 import { DataManagementSettings } from "@/components/settings/categories/DataManagementSettings";
@@ -85,6 +86,15 @@ export function getStoredSettingsTabId(
   return getInitialSettingsTabId(storage.getItem("settings-active-tab"));
 }
 
+export function isUpdateSettingsNavigationState(state: unknown): boolean {
+  return (
+    typeof state === "object" &&
+    state !== null &&
+    "focus" in state &&
+    state.focus === "updates"
+  );
+}
+
 export function getPairingCodeRemainingSeconds(
   expiresAt: string,
   now = Date.now()
@@ -138,12 +148,12 @@ const SETTINGS_SEARCH_ITEMS = [
   ["default-recipe-view", "Default recipe view", "Default recipe detail presentation", ["recipes", "display"]],
   ["default-unit-mode", "Default unit mode", "Default recipe measurement units", ["recipes", "units", "measurement"]],
   ["desktop-behavior", "Application behavior", "How the app behaves on this device", ["desktop", "device", "lifecycle"]],
-  ["updates", "Check for updates at startup", "Automatic packaged-app update checks", ["updates", "startup"]],
+  ["updates", "Check for updates at startup", "Automatic packaged-app update checks", ["updates", "startup"], "general"],
   ["diagnostics", "Diagnostics", "Runtime details for troubleshooting", ["runtime", "status", "troubleshooting"]],
   ["connection", "Server connection", "Local or remote server configuration", ["network", "remote", "server"]],
   ["lan-access", "LAN browser access", "Trusted browser access on the local network", ["LAN", "browser", "pairing"]],
   ["data-management", "Data Management", "Versioned archive backup and restore", ["backup", "restore", "archive"]],
-].map(([settingId, label, description, keywords]) => ({
+].map(([settingId, label, description, keywords, sectionId]) => ({
   settingId,
   categoryId:
     settingId === "connection" || settingId === "lan-access"
@@ -160,6 +170,7 @@ const SETTINGS_SEARCH_ITEMS = [
   label,
   description,
   keywords,
+  sectionId,
   targetId: settingId,
 })) as SettingsSearchItem[];
 
@@ -177,6 +188,7 @@ function toggleValue(values: string[], value: string) {
 }
 
 export default function SettingsPage() {
+  const location = useLocation();
   const config = useServerConfig();
   const { setThemePreference } = usePreferences();
   const apiReady = isServerConfigReady(config);
@@ -295,6 +307,7 @@ export default function SettingsPage() {
   }
 
   const [activeTab, setActiveTabState] = useState<TabId>(getInitialTab);
+  const handledNavigationKeyRef = useRef<string | null>(null);
 
   function setActiveTab(id: TabId) {
     if (id !== "network") {
@@ -315,6 +328,24 @@ export default function SettingsPage() {
   useEffect(() => {
     detailPaneRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [activeTab]);
+
+  useEffect(() => {
+    if (
+      !isUpdateSettingsNavigationState(location.state) ||
+      handledNavigationKeyRef.current === location.key
+    ) {
+      return;
+    }
+
+    handledNavigationKeyRef.current = location.key;
+    setActiveTab("general");
+    window.dispatchEvent(
+      new CustomEvent("settings-open-section", { detail: "general" })
+    );
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('[data-setting-id="updates"]')?.focus();
+    });
+  }, [location.key, location.state]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const searchResults = searchSettings(
