@@ -115,5 +115,7 @@ Run `npm run lint`, `npm run test`, and `npm run build` locally. The workflow us
 **Windows packaging failed**
 Check the Electron Builder publish config in `package.json`, the repository release permissions, and the workflow logs from the `Package & publish Windows release` step.
 
+Keep `build.win.signAndEditExecutable` enabled so Electron Builder can embed the Windows app icon and other executable resources. Code signing remains optional; when no signing certificate is configured, Electron Builder skips signing unless forced signing is enabled.
+
 **Prisma-related packaging errors**
 Confirm `npm run db:generate` succeeds locally and that the Prisma resources listed under `build.extraResources` in `package.json` are still correct.
