@@ -30,6 +30,7 @@ dist/
 build/
 out/
 .next/
+release-notes-windows.md
 
 # Test coverage
 coverage/

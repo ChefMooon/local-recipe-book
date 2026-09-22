@@ -19,6 +19,7 @@ Pushing a `v` tag starts the desktop release workflow.
 - Ensure the release metadata is committed on `main` with a message such as `chore: prepare v1.1.1 release`, then push that commit to `origin` before creating the tag.
 - Update `package.json` `version` to match the intended release.
 - Update `CHANGELOG.md` if you are maintaining release notes.
+- Run `npm run prepare:release-notes` to extract the matching version section from `CHANGELOG.md`. The generated `release-notes-windows.md` file is disposable packaging input and is ignored by git.
 - Verify local validation passes:
 
 ```bash
@@ -56,7 +57,10 @@ git push origin v1.0.0
 4. Builds the Electron app with `npm run build` (which includes a prebuild step that runs `build:web` first, producing both the browser renderer bundle and the Electron app).
 5. Reruns `npm run lint`.
 6. Reruns `npm run test`.
-7. Packages and publishes the Windows installer with `electron-builder --win --publish always`.
+7. Extracts the package version's release notes from `CHANGELOG.md` into a generated packaging file.
+8. Packages the Windows installer with `electron-builder --win`.
+9. Verifies that `dist/latest.yml` contains non-empty `releaseNotes`.
+10. Publishes the Windows installer with `electron-builder --win --publish always`.
 
 The workflow uses the repository `GITHUB_TOKEN` to publish the release assets defined by the Electron Builder config in `package.json`. A normal Windows release has one installer `.exe` plus two required updater assets: the matching `.blockmap` and `latest.yml` (three assets total). The blockmap and `latest.yml` are metadata for the same installer, not additional installer artifacts or duplicate releases.
 
@@ -70,10 +74,13 @@ The breaking Local Recipe Book identity uses package slug `local-recipe-book` an
 
 1. Open GitHub Releases and confirm the `v1.0.0` release exists.
 2. Confirm exactly one Windows installer `.exe`, its matching `.blockmap`, and `latest.yml` were uploaded; the latter two are updater metadata for the same installer.
-3. Download and install the build on Windows.
-4. Launch the app and confirm startup, local server boot, and settings persistence.
-5. Confirm the browser web bundle is included — open the static URL on a LAN device or check that browser assets are present in the packaged output.
-6. If auto-update is part of the release you are testing, confirm the updater can see the GitHub-hosted release feed.
+3. Confirm `latest.yml` contains the extracted changelog notes for the new version. The updater reads these notes from the feed, so this must pass even if the GitHub Release body has not yet been edited.
+4. Download and install the build on Windows.
+5. Launch the app and confirm startup, local server boot, and settings persistence.
+6. Confirm the browser web bundle is included — open the static URL on a LAN device or check that browser assets are present in the packaged output.
+7. If auto-update is part of the release you are testing, confirm the updater can see the GitHub-hosted release feed and that **View release notes** shows the new notes.
+
+This change applies only to future releases prepared after it lands. Do not modify or republish existing release assets or `latest.yml` files. Older releases may continue to show the renderer fallback message when their metadata has no notes.
 
 For this naming-break release, also verify that the package creates `{userData}/data/local-recipe-book.db` and does not read old `copilot-chef` database, photo, browser, environment, configuration-file, or protocol identifiers.
 

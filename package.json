@@ -16,6 +16,9 @@
         "repo": "local-recipe-book"
       }
     ],
+    "releaseInfo": {
+      "releaseNotesFile": "release-notes-windows.md"
+    },
     "extraResources": [
       {
         "from": "resources",
@@ -86,13 +89,15 @@
     "check:data-management:runtime": "node scripts/check-data-management-build.mjs --runtime",
     "check:data-management:build": "node scripts/check-data-management-build.mjs --build",
     "check:data-management:package": "node scripts/check-data-management-build.mjs --package",
+    "prepare:release-notes": "node scripts/check-release-notes.mjs --prepare",
+    "check:release-metadata": "node scripts/check-release-notes.mjs --artifact",
     "recipe:reports": "tsx --tsconfig tsconfig.node.json scripts/run-recipe-ingestion-reports.mts",
     "build:web": "vite build --config vite.web.config.mts",
     "dev:web": "vite --config vite.web.config.mts --host 127.0.0.1",
     "start": "electron-vite preview",
     "postinstall": "npm run db:generate && electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir && npm run check:data-management:package",
-    "build:win": "npm run build && electron-builder --win && npm run check:data-management:package",
+    "build:win": "npm run build && npm run prepare:release-notes && electron-builder --win && npm run check:data-management:package",
     "build:linux": "npm run build && electron-builder --linux",
     "lint": "eslint .",
     "format": "prettier --write .",
