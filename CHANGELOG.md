@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-09-22
+
+### Added
+
+- Update notifications now include a Settings action for managing the available update.
+
+### Fixed
+
+- Windows release builds now embed the app icon in the executable.
+
 ## [1.3.0] - 2026-09-16
 
 ### Added
