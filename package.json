@@ -13,7 +13,8 @@
       {
         "provider": "github",
         "owner": "ChefMooon",
-        "repo": "local-recipe-book"
+        "repo": "local-recipe-book",
+        "releaseType": "draft"
       }
     ],
     "releaseInfo": {

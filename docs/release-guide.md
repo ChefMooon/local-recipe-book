@@ -36,6 +36,8 @@ The release workflow reruns build, lint, and test on GitHub before packaging, so
 
 The publish-release skill creates and pushes the requested tag after local validation and release metadata preparation. It watches the matching `Release Client` workflow by release commit SHA and tag until it completes successfully, then updates the resulting GitHub Release draft with the validated changelog entry. Before editing notes, it verifies that the release `tagName` and title are exactly the requested tag; leave the release as a draft until it has been reviewed.
 
+CI runs for pull requests targeting `main`. Direct pushes to `main` do not start a separate CI run; tagged releases run the full build, lint, and test checks in `Release Client` before uploading draft assets.
+
 For the final handoff, use the authenticated draft editor URL `https://github.com/OWNER/REPOSITORY/releases/edit/TAG`, replacing `OWNER/REPOSITORY` with the verified GitHub remote slug and `TAG` with the exact release tag. The GitHub API can return a temporary `html_url` containing an `untagged-*` slug for an unpublished draft; that URL is not canonical and can return 404. The releases page, `https://github.com/OWNER/REPOSITORY/releases`, is the secondary navigation fallback.
 
 Manual tag creation from the repository root:
@@ -58,11 +60,10 @@ git push origin v1.0.0
 5. Reruns `npm run lint`.
 6. Reruns `npm run test`.
 7. Extracts the package version's release notes from `CHANGELOG.md` into a generated packaging file.
-8. Packages the Windows installer with `electron-builder --win`.
+8. Packages and uploads the Windows installer and updater assets to a GitHub Release draft in one Electron Builder invocation. The GitHub publish configuration sets `releaseType` to `draft`; the workflow does not publish the release.
 9. Verifies that `dist/latest.yml` contains non-empty `releaseNotes`.
-10. Publishes the Windows installer with `electron-builder --win --publish always`.
 
-The workflow uses the repository `GITHUB_TOKEN` to publish the release assets defined by the Electron Builder config in `package.json`. A normal Windows release has one installer `.exe` plus two required updater assets: the matching `.blockmap` and `latest.yml` (three assets total). The blockmap and `latest.yml` are metadata for the same installer, not additional installer artifacts or duplicate releases.
+The workflow uses the repository `GITHUB_TOKEN` to upload the release assets defined by the Electron Builder config in `package.json`. The release remains a draft for review and manual publication. A normal Windows release has one installer `.exe` plus two required updater assets: the matching `.blockmap` and `latest.yml` (three assets total). The blockmap and `latest.yml` are metadata for the same installer, not additional installer artifacts or duplicate releases.
 
 After the workflow creates the GitHub Release draft, update its body with the validated `CHANGELOG.md` entry for the matching version. Preserve any generated release text and avoid duplicating the changelog block. Verify the workflow's matching SHA/ref, successful completion, exact draft tag/title, changelog text, one installer `.exe`, its matching `.blockmap`, and `latest.yml` before publishing or treating the release as complete. Multiple matching installers, duplicate asset names, or multiple releases for one tag are ambiguous and must stop the release process.
 

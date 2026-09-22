@@ -44,14 +44,11 @@ jobs:
       - name: Test
         run: npm run test
 
-      - name: Package Windows release
-        run: npx electron-builder --win
-
-      - name: Validate updater metadata
-        run: npm run check:release-metadata
-
-      - name: Publish Windows release
+      - name: Package and upload Windows artifacts to draft
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate updater metadata
+        run: npm run check:release-metadata
 
