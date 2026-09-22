@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCookNotesFromHtml, parseIngredientLinesFromHtml } from "./recipe-service";
+import {
+  buildRecipeIngestionReport,
+  parseCookNotesFromHtml,
+  parseIngredientLinesFromHtml,
+} from "./recipe-service";
 
 describe("parseIngredientLinesFromHtml", () => {
   it("parses recipe-card ingredient rows using ordered spans and keeps notes", () => {
@@ -182,5 +186,133 @@ describe("parseCookNotesFromHtml", () => {
     expect(notes).toContain("- Brown sugar gives depth");
     expect(notes).toContain("- If you do not have both, use just light brown sugar.");
     expect(notes).toContain("- Pan note A metal baking pan is recommended.");
+  });
+});
+
+describe("buildRecipeIngestionReport ingredient extraction", () => {
+  it("prefers JSON-LD ingredients over FAQ prose and keeps instructions separately", () => {
+    const ingredients = [
+      "1 cup cauliflower",
+      "2 teaspoons garlic powder",
+      "3 tablespoons olive oil",
+      "4 ounces cheddar cheese",
+      "5 grams salt",
+      "6 cloves garlic",
+      "7 cups breadcrumbs",
+      "8 tablespoons water",
+      "9 ounces yogurt",
+      "10 teaspoons paprika",
+    ];
+    const html = `
+      <script type="application/ld+json">${JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        recipeIngredient: ingredients,
+      })}</script>
+      <section>
+        <h2>Ingredients</h2>
+        <ul>
+          <li>What can I use instead of cauliflower?</li>
+          <li>Can this be made ahead?</li>
+        </ul>
+      </section>
+      <section><h2>Frequently Asked Questions</h2><p>Can I freeze leftovers?</p></section>
+    `;
+    const markdown = `## Instructions\n1. Mix everything.\n2. Bake until tender.\n3. Cool briefly.\n4. Add the sauce.\n5. Serve warm.`;
+
+    const report = buildRecipeIngestionReport({
+      markdown,
+      html,
+      title: "Cauliflower Wings",
+    });
+
+    expect(report.ingredientExtraction.source).toBe("jsonld");
+    expect(report.ingredientExtraction.rawCandidates).toEqual(ingredients);
+    expect(report.ingredientExtraction.rawCandidates).toHaveLength(10);
+    expect(report.ingredientExtraction.rawCandidates.join(" ")).not.toContain(
+      "What can I use"
+    );
+    expect(report.instructions.raw).toHaveLength(5);
+  });
+
+  it("finds Recipe ingredients in array roots and nested @graph objects", () => {
+    const html = `
+      <script type="application/ld+json">${JSON.stringify([
+        {
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": ["Thing", "https://schema.org/Recipe"],
+              recipeIngredient: ["2 cups rolled oats", ["1 tablespoon honey"]],
+            },
+          ],
+        },
+      ])}</script>
+    `;
+
+    const report = buildRecipeIngestionReport({
+      markdown: "",
+      html,
+      title: "Oat Mix",
+    });
+
+    expect(report.ingredientExtraction.source).toBe("jsonld");
+    expect(report.ingredientExtraction.rawCandidates).toEqual([
+      "2 cups rolled oats",
+      "1 tablespoon honey",
+    ]);
+  });
+
+  it("falls back to measured HTML ingredients when JSON-LD is malformed", () => {
+    const html = `
+      <script type="application/ld+json">{not valid JSON}</script>
+      <section>
+        <h2>Ingredients</h2>
+        <ul><li>2 cups flour</li><li>1 teaspoon salt</li></ul>
+      </section>
+    `;
+
+    const report = buildRecipeIngestionReport({
+      markdown: "",
+      html,
+      title: "Simple Dough",
+    });
+
+    expect(report.ingredientExtraction.source).toBe("html");
+    expect(report.ingredientExtraction.rawCandidates).toEqual([
+      "2 cups flour",
+      "1 teaspoon salt",
+    ]);
+  });
+
+  it("rejects prose-only HTML lists and warns when candidates are all low confidence", () => {
+    const html = `
+      <section>
+        <h2>Ingredients</h2>
+        <ul>
+          <li>Butter is important for a soft texture.</li>
+          <li>Sugar gives the recipe a gentle sweetness.</li>
+        </ul>
+      </section>
+    `;
+
+    const report = buildRecipeIngestionReport({ markdown: "", html, title: "Cake" });
+
+    expect(report.ingredientExtraction.source).toBe("fallback");
+    expect(report.ingredientExtraction.rawCandidates).toEqual([]);
+    expect(report.validation.passed).toBe(false);
+    expect(report.validation.warnings).toContain(
+      "No ingredient section found in source content."
+    );
+
+    const markdownReport = buildRecipeIngestionReport({
+      markdown: "## Ingredients\nButter is important for a soft texture.\nSugar gives the recipe a gentle sweetness.",
+      html: "",
+      title: "Cake",
+    });
+    expect(markdownReport.ingredientExtraction.source).toBe("markdown");
+    expect(markdownReport.validation.warnings).toContain(
+      "All extracted ingredient candidates have low parse confidence; review them before saving."
+    );
   });
 });

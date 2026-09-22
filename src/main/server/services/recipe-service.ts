@@ -868,6 +868,64 @@ export function parseIngredientLinesFromHtml(html: string) {
   return candidates[0].lines;
 }
 
+function parseRecipeIngredientLinesFromJsonLd(html: string) {
+  const $ = load(html);
+  const recipes: unknown[] = [];
+  const visited = new Set<object>();
+
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    if (!value || typeof value !== "object" || visited.has(value)) {
+      return;
+    }
+
+    visited.add(value);
+    const record = value as Record<string, unknown>;
+    const types = Array.isArray(record["@type"])
+      ? record["@type"]
+      : [record["@type"]];
+    if (
+      types.some(
+        (type) =>
+          typeof type === "string" &&
+          type.split(/[/#]/).at(-1)?.toLowerCase() === "recipe"
+      )
+    ) {
+      recipes.push(record.recipeIngredient);
+    }
+
+    Object.values(record).forEach(visit);
+  };
+
+  const flattenIngredients = (value: unknown): string[] => {
+    if (typeof value === "string") {
+      const ingredient = collapseWhitespace(value);
+      return ingredient ? [ingredient] : [];
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap(flattenIngredients);
+    }
+    if (value && typeof value === "object") {
+      return flattenIngredients((value as Record<string, unknown>)["@value"]);
+    }
+    return [];
+  };
+
+  $("script[type='application/ld+json']").each((_, script) => {
+    try {
+      visit(JSON.parse($(script).text()));
+    } catch {
+      return;
+    }
+  });
+
+  return uniqueLines(recipes.flatMap(flattenIngredients));
+}
+
 export function parseCookNotesFromHtml(html: string) {
   const $ = load(html);
 
@@ -962,7 +1020,7 @@ export type RecipeIngestionReport = {
     htmlLength: number;
   };
   ingredientExtraction: {
-    source: "html" | "markdown" | "fallback";
+    source: "jsonld" | "html" | "markdown" | "fallback";
     rawCandidates: string[];
     normalized: Array<{
       name: string;
@@ -1038,11 +1096,28 @@ export function buildRecipeIngestionReport({
   sourceLabel?: string | null;
 }): RecipeIngestionReport {
   const trimmedTitle = (title ?? "").trim() || "Imported Recipe";
-  const htmlIngredients = html ? parseIngredientLinesFromHtml(html) : [];
+  const jsonLdIngredients = html ? parseRecipeIngredientLinesFromJsonLd(html) : [];
+  const parsedHtmlIngredients = html ? parseIngredientLinesFromHtml(html) : [];
+  const htmlIngredients = normalizeIngredients(parsedHtmlIngredients).some(
+    (entry) => entry.confidence === "high"
+  )
+    ? parsedHtmlIngredients
+    : [];
   const markdownIngredients = sectionLines(markdown, ["ingredient"]);
-  const ingredientCandidates = htmlIngredients.length > 0 ? htmlIngredients : markdownIngredients;
+  const ingredientCandidates =
+    jsonLdIngredients.length > 0
+      ? jsonLdIngredients
+      : htmlIngredients.length > 0
+        ? htmlIngredients
+        : markdownIngredients;
   const ingredientSource: RecipeIngestionReport["ingredientExtraction"]["source"] =
-    htmlIngredients.length > 0 ? "html" : markdownIngredients.length > 0 ? "markdown" : "fallback";
+    jsonLdIngredients.length > 0
+      ? "jsonld"
+      : htmlIngredients.length > 0
+        ? "html"
+        : markdownIngredients.length > 0
+          ? "markdown"
+          : "fallback";
   const normalized = normalizeIngredients(ingredientCandidates);
   const normalizedWithRaw = normalized.map((entry, index) => ({
     ...entry,
@@ -1058,7 +1133,17 @@ export function buildRecipeIngestionReport({
     warnings.push("No ingredient section found in source content.");
   }
   if (ingredientSource === "markdown" && htmlIngredients.length === 0) {
-    warnings.push("No HTML ingredient list found; using markdown section as fallback.");
+    warnings.push(
+      "No HTML ingredient list found; using markdown section as fallback."
+    );
+  }
+  if (
+    normalizedWithRaw.length > 0 &&
+    flaggedLowConfidence.length === normalizedWithRaw.length
+  ) {
+    warnings.push(
+      "All extracted ingredient candidates have low parse confidence; review them before saving."
+    );
   }
 
   const rawInstructions = sectionLines(markdown, ["instruction", "direction", "method"]);
