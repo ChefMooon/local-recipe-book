@@ -1,9 +1,12 @@
 name: Release Client
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      expected_commit_sha:
+        description: Full commit SHA expected for the release tag
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -19,6 +22,71 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify release ref, commit, package metadata, and draft assets
+        uses: actions/github-script@v7
+        env:
+          EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}
+        with:
+          script: |
+            const { execFileSync } = require("node:child_process");
+            const fs = require("node:fs");
+            const ref = context.ref;
+            const tagMatch = ref.match(/^refs\/tags\/(v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/);
+            if (!tagMatch) {
+              throw new Error(`Expected a vMAJOR.MINOR.PATCH tag ref, got ${ref}`);
+            }
+
+            const tag = tagMatch[1];
+            const expectedSha = process.env.EXPECTED_COMMIT_SHA.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(expectedSha)) {
+              throw new Error("expected_commit_sha must be a full 40-character commit SHA");
+            }
+
+            const headSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim().toLowerCase();
+            const tagSha = execFileSync("git", ["rev-parse", `${tag}^{commit}`], { encoding: "utf8" }).trim().toLowerCase();
+            if (headSha !== expectedSha || tagSha !== expectedSha) {
+              throw new Error(`Commit mismatch: expected ${expectedSha}, checkout ${headSha}, tag target ${tagSha}`);
+            }
+
+            const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const version = tag.slice(1);
+            if (packageJson.version !== version) {
+              throw new Error(`package.json version ${packageJson.version} does not match release tag ${tag}`);
+            }
+
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              ...context.repo,
+              per_page: 100,
+            });
+            const matches = releases.filter((release) => release.tag_name === tag);
+            if (matches.length !== 1) {
+              throw new Error(`Expected exactly one release for ${tag}; found ${matches.length}`);
+            }
+
+            const release = matches[0];
+            if (!release.draft || release.name !== tag) {
+              throw new Error(`Release ${tag} must remain a draft with title exactly ${tag}`);
+            }
+
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
+              ...context.repo,
+              release_id: release.id,
+              per_page: 100,
+            });
+            const productName = packageJson.productName;
+            const installerName = `${productName}-${version}-Setup-x64.exe`;
+            const allowedNames = new Set([installerName, `${installerName}.blockmap`, "latest.yml"]);
+            const names = assets.map((asset) => asset.name);
+            if (new Set(names).size !== names.length) {
+              throw new Error(`Release ${tag} contains duplicate asset names`);
+            }
+            const unexpected = names.filter((name) => !allowedNames.has(name));
+            if (unexpected.length) {
+              throw new Error(`Release ${tag} contains unexpected assets: ${unexpected.join(", ")}`);
+            }
+
+            core.info(`Verified ${tag} at ${expectedSha}; existing expected assets may be safely replaced on retry.`);
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -51,4 +119,3 @@ jobs:
 
       - name: Validate updater metadata
         run: npm run check:release-metadata
-
