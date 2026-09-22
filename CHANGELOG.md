@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2] - 2026-09-22
+
+### Fixed
+
+- Recipe imports now prefer structured ingredient data when available, producing more reliable ingredient lists.
+
 ## [1.3.1] - 2026-09-22
 
 ### Added
